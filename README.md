@@ -91,7 +91,7 @@ signifie ici : lancé pour de vrai et sortie vérifiée — pas seulement compil
 | Module / fonction | Écrit | Compile | Exécuté pour de vrai | Notes |
 |---|---|---|---|---|
 | `src/transcribe.py` | ✅ | ✅ | ✅ | validé de bout en bout le 2026-08-06 |
-| └ `transcribe_file()` | ✅ | ✅ | ✅ | `whisper-large-v3-mlx`, `language="fr"`, `.m4a` et `.wav` |
+| └ `transcribe_file()` | ✅ | ✅ | ✅ | `whisper-large-v3-mlx`, `language="fr"`, `.m4a` `.wav` `.opus` `.ogg` |
 | └ `save_transcript()` | ✅ | ✅ | ✅ | fichiers `output/*.txt` créés et relus |
 | └ CLI `argparse` | ✅ | ✅ | ✅ | `--help`, run nominal, codes de sortie |
 | └ erreur fichier absent | ✅ | ✅ | ✅ | message clair + `exit 1` |
@@ -123,19 +123,22 @@ accents et apostrophes sont corrects.
 
 **Test 2 — vocal WhatsApp réel (voix humaine, fr, 2,47 s)**
 
-Source : `.opus` mono 48 kHz (conteneur ogg, 18,6 kbit/s), converti en `.wav`
-16 kHz mono via ffmpeg. Transcription **correcte** : phrase cohérente,
-ponctuation et accents corrects, malgré la forte compression WhatsApp et une
-durée très courte. Contenu non reproduit (dépôt public).
+Source : `.opus` mono 48 kHz (conteneur ogg, 18,6 kbit/s). Transcription
+**correcte** : phrase cohérente, ponctuation et accents corrects, malgré la
+forte compression WhatsApp et une durée très courte. Contenu non reproduit
+(dépôt public).
 
-> ⚠️ `.opus` n'est **pas** accepté par `transcribe.py` : il ne figure pas dans
-> `SUPPORTED_EXTENSIONS` (`.mp3`, `.wav`, `.m4a`, `.mp4`). Ce n'est pas une
-> limite de mlx-whisper ni de ffmpeg, qui gèrent le format sans problème — il
-> faut convertir en amont :
->
-> ```bash
-> ffmpeg -i entree.opus -ar 16000 -ac 1 sortie.wav
-> ```
+Le même extrait a été passé sous quatre formes — `.opus`, `.ogg` (opus remuxé),
+`.ogg` (vorbis stéréo) et `.wav` 16 kHz mono — avec une sortie **identique au
+caractère près** dans les quatre cas.
+
+> **Pourquoi aucune conversion n'est faite dans le code.** `mlx_whisper`
+> décode déjà tout via ffmpeg, en imposant lui-même 16 kHz mono
+> (`ffmpeg -i <fichier> -f s16le -ac 1 -ar 16000 -`, cf. `mlx_whisper/audio.py`).
+> Convertir en amont referait donc exactement le même travail, en double et avec
+> un fichier temporaire à gérer. `SUPPORTED_EXTENSIONS` sert uniquement de
+> garde-fou pour rejeter tôt un fichier manifestement non audio ; tout format lu
+> par ffmpeg fonctionne dès qu'il y figure.
 
 **Performance** (Mac M5, `whisper-large-v3-mlx`) :
 
@@ -167,10 +170,11 @@ Mac M5 (`Darwin arm64`) — tout est en place :
 
 ### Reste à valider
 
-- Autres extensions : `.m4a` et `.wav` ont été exécutés ; `.mp3` et `.mp4` sont
-  acceptés par le code mais jamais passés dans `mlx_whisper`.
-- Support natif de `.opus` / `.ogg` : à décider — conversion manuelle requise
-  aujourd'hui, alors que les vocaux WhatsApp sont en `.opus`.
+- Autres extensions : `.m4a`, `.wav`, `.opus` et `.ogg` ont été exécutés ;
+  `.mp3` et `.mp4` sont acceptés par le code mais jamais passés dans
+  `mlx_whisper`.
+- Fichier audio corrompu ou tronqué : remonte aujourd'hui en `RuntimeError`
+  brute de `mlx_whisper` avec une stacktrace, au lieu d'un message propre.
 - Audio bruité ou à plusieurs locuteurs : les deux tests sont mono-locuteur et
   propres.
 - Fichier long (> 30 min) : comportement mémoire et découpage non observés.

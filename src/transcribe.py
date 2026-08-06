@@ -6,7 +6,9 @@ import sys
 
 DEFAULT_MODEL = "mlx-community/whisper-large-v3-mlx"
 DEFAULT_LANGUAGE = "fr"
-SUPPORTED_EXTENSIONS = (".mp3", ".wav", ".m4a", ".mp4")
+# mlx_whisper décode via ffmpeg (`-ac 1 -ar 16000`), donc tout format lu par
+# ffmpeg convient : la conversion en 16 kHz mono est déjà faite en interne.
+SUPPORTED_EXTENSIONS = (".mp3", ".wav", ".m4a", ".mp4", ".opus", ".ogg")
 
 
 def transcribe_file(
