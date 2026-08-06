@@ -2,9 +2,9 @@
 
 CLI Python de transcription audio **locale**, basé sur Whisper.
 
-> **Statut : en cours de développement.** Étape 1 (setup de l'environnement et
-> structure du projet) terminée. La logique de transcription n'est pas encore
-> implémentée.
+> **Statut : en cours de développement.** La transcription locale de base est
+> implémentée et testée (voir [Testing Status](#testing-status)). Diarisation,
+> batch, YouTube et résumé ne le sont pas encore.
 
 ## Fonctionnalités prévues
 
@@ -84,54 +84,73 @@ d'utiliser un Python 3.12/3.13 pour le venv.
 
 ## Testing Status
 
-Suivi de ce qui est **écrit** vs ce qui est **réellement validé**, pour savoir
-exactement quoi vérifier une fois l'environnement complet en place. À mettre à
-jour à chaque étape.
+Suivi de ce qui est **écrit** vs ce qui est **réellement exécuté**. « Testé »
+signifie ici : lancé pour de vrai et sortie vérifiée — pas seulement compilé.
+À mettre à jour à chaque étape.
 
-| Module | Écrit | Compile | Testé à l'exécution | Notes |
+| Module / fonction | Écrit | Compile | Exécuté pour de vrai | Notes |
 |---|---|---|---|---|
+| `src/transcribe.py` | ✅ | ✅ | ✅ | validé de bout en bout le 2026-08-06 |
+| └ `transcribe_file()` | ✅ | ✅ | ✅ | `whisper-large-v3-mlx`, `language="fr"`, fichier `.m4a` |
+| └ `save_transcript()` | ✅ | ✅ | ✅ | `output/test_fr.txt` créé et relu |
+| └ CLI `argparse` | ✅ | ✅ | ✅ | `--help`, run nominal, codes de sortie |
+| └ erreur fichier absent | ✅ | ✅ | ✅ | message clair + `exit 1` |
+| └ erreur extension | ✅ | ✅ | ✅ | message clair + `exit 1` |
 | `src/__init__.py` | ✅ (vide) | ✅ | n/a | simple marqueur de package |
-| `src/transcribe.py` | ❌ **pas encore créé** | — | — | prévu à l'étape 3 |
-| CLI `argparse` | ❌ | — | — | étape ultérieure |
-| Diarisation (`whisperx`) | ❌ | — | — | étape ultérieure |
-| YouTube (`yt-dlp`) | ❌ | — | — | étape ultérieure |
-| Résumé (API Claude) | ❌ | — | — | étape ultérieure |
-| `tests/` | ❌ vide | — | — | aucun test écrit |
+| Diarisation (`whisperx`) | ❌ | — | — | dépendance installée, code non écrit |
+| YouTube (`yt-dlp`) | ❌ | — | — | dépendance installée, code non écrit |
+| Batch / surveillance dossier | ❌ | — | — | étape ultérieure |
+| Résumé (API Claude) | ❌ | — | — | `anthropic` absent de `requirements.txt` |
+| `tests/` | ❌ vide | — | — | aucun test automatisé |
 
-**Aucun code de transcription n'a encore été écrit** : il n'y a donc, à ce jour,
-rien à compiler ni à exécuter. Le tableau existe pour être rempli au fur et à
-mesure, pas pour documenter une dette de tests.
+### Résultat de la transcription réelle (2026-08-06)
 
-### État de la machine de dev (vérifié le 2026-08-06)
+Échantillon généré avec la voix système macOS `Thomas` (fr_FR), 6,3 s, `.m4a` :
 
-La machine courante est bien un **macOS Apple Silicon (`arm64`)**, mais
-l'environnement n'y est pas encore installé — aucun test réel n'est possible
-en l'état :
+| | |
+|---|---|
+| **Texte attendu** | « Bonjour, ceci est un test de transcription pour le projet whisper toolkit. Il fait beau aujourd'hui à Paris. » |
+| **Texte obtenu** | « Bonjour, ceci est un test de transcription pour le projet Wisp et Tolkien. Il fait beau aujourd'hui à Paris. » |
+
+Seul écart : « whisper toolkit » → « Wisp et Tolkien ». C'est un artefact de
+l'échantillon, pas du modèle — la voix française prononce ces deux mots anglais
+à la française, et Whisper transcrit fidèlement ce qu'il entend. Ponctuation,
+accents et apostrophes sont corrects.
+
+**Performance** (Mac M5, `whisper-large-v3-mlx`) :
+
+| Run | Durée | Détail |
+|---|---|---|
+| 1er | 4 min 16 s | dont 3 min 49 s de téléchargement du modèle (~3 Go) |
+| Suivants | 3,6 s | modèle en cache, pour 6,3 s d'audio |
+
+### Environnement de test (vérifié le 2026-08-06)
+
+Mac M5 (`Darwin arm64`) — tout est en place :
 
 | Élément | Statut |
 |---|---|
-| `venv/` | ❌ absent |
-| Python disponible | 3.14.6 (Homebrew) — trop récent pour `whisperx` |
-| `mlx-whisper` | ❌ non installé |
-| `whisperx` | ❌ non installé |
-| `yt-dlp` | ❌ non installé |
-| `anthropic` | ❌ non installé (et pas encore dans `requirements.txt`) |
-| `ffmpeg` | ❌ absent du `PATH` |
+| `venv/` | ✅ Python 3.12.13 |
+| `mlx-whisper` | ✅ 0.4.3 (avec `mlx` 0.32.0) |
+| `whisperx` | ✅ 3.8.6 |
+| `yt-dlp` | ✅ 2026.7.4 |
+| `python-dotenv` | ✅ 1.2.2 |
+| `ffmpeg` | ✅ présent dans le `PATH` |
+| `anthropic` | ❌ non installé, pas encore requis |
 
 > ⚠️ La section « État d'installation par machine » ci-dessus décrit une machine
-> Windows 11 / Python 3.14 ; elle ne correspond plus à la machine sur laquelle
-> ce dépôt est actuellement ouvert.
+> Windows 11 / Python 3.14 : elle est **obsolète** et ne correspond pas à la
+> machine de dev actuelle.
 
-### À valider une fois l'environnement en place
+### Reste à valider
 
-1. Créer le `venv` avec **Python 3.12 ou 3.13** (3.14 casse `whisperx`, cf.
-   ci-dessus) — aucun des deux n'est installé sur cette machine pour l'instant.
-2. `pip install -r requirements.txt` → vérifier que `mlx-whisper` s'installe
-   effectivement (marqueur d'environnement satisfait sur Apple Silicon).
-3. Installer `ffmpeg` et vérifier sa présence dans le `PATH`.
-4. `python -m py_compile src/*.py` sur les modules une fois écrits.
-5. Vérifier que `import mlx_whisper` fonctionne, puis lancer une transcription
-   réelle sur un fichier audio court.
+- Autres extensions : seul `.m4a` a été exécuté ; `.mp3`, `.wav`, `.mp4` sont
+  acceptés par le code mais jamais passés dans `mlx_whisper`.
+- Vrai enregistrement humain (voix, bruit de fond) plutôt qu'un échantillon TTS.
+- Fichier long (> 30 min) : comportement mémoire et découpage non observés.
+- Autres langues et autres modèles que les valeurs par défaut.
+- Tests automatisés dans `tests/` : aucun pour l'instant, tout a été vérifié
+  à la main.
 
 ## Développement
 
