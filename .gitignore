@@ -1,0 +1,54 @@
+# Environnements virtuels
+venv/
+.venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Tests / outils
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Secrets
+.env
+.env.*
+
+# Fichiers audio / vidéo de test
+*.mp3
+*.wav
+*.m4a
+*.flac
+*.ogg
+*.opus
+*.mp4
+*.mkv
+*.webm
+audio/
+samples/
+
+# Sorties de transcription
+*.srt
+*.vtt
+out/
+output/
+transcripts/
+
+# Modèles téléchargés
+models/
+
+# OS / éditeurs
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
