@@ -91,8 +91,8 @@ signifie ici : lancé pour de vrai et sortie vérifiée — pas seulement compil
 | Module / fonction | Écrit | Compile | Exécuté pour de vrai | Notes |
 |---|---|---|---|---|
 | `src/transcribe.py` | ✅ | ✅ | ✅ | validé de bout en bout le 2026-08-06 |
-| └ `transcribe_file()` | ✅ | ✅ | ✅ | `whisper-large-v3-mlx`, `language="fr"`, fichier `.m4a` |
-| └ `save_transcript()` | ✅ | ✅ | ✅ | `output/test_fr.txt` créé et relu |
+| └ `transcribe_file()` | ✅ | ✅ | ✅ | `whisper-large-v3-mlx`, `language="fr"`, `.m4a` et `.wav` |
+| └ `save_transcript()` | ✅ | ✅ | ✅ | fichiers `output/*.txt` créés et relus |
 | └ CLI `argparse` | ✅ | ✅ | ✅ | `--help`, run nominal, codes de sortie |
 | └ erreur fichier absent | ✅ | ✅ | ✅ | message clair + `exit 1` |
 | └ erreur extension | ✅ | ✅ | ✅ | message clair + `exit 1` |
@@ -103,9 +103,13 @@ signifie ici : lancé pour de vrai et sortie vérifiée — pas seulement compil
 | Résumé (API Claude) | ❌ | — | — | `anthropic` absent de `requirements.txt` |
 | `tests/` | ❌ vide | — | — | aucun test automatisé |
 
-### Résultat de la transcription réelle (2026-08-06)
+### Transcriptions réelles exécutées (2026-08-06)
 
-Échantillon généré avec la voix système macOS `Thomas` (fr_FR), 6,3 s, `.m4a` :
+Les fichiers audio de test vivent dans `test-audio/`, **ignoré par git** — ce
+dépôt est public, aucun échantillon ne doit y être versionné. Le contenu des
+transcriptions n'est volontairement pas reproduit ici pour la même raison.
+
+**Test 1 — échantillon synthétique (voix macOS `Thomas`, fr_FR, 6,3 s, `.m4a`)**
 
 | | |
 |---|---|
@@ -117,12 +121,31 @@ l'échantillon, pas du modèle — la voix française prononce ces deux mots ang
 à la française, et Whisper transcrit fidèlement ce qu'il entend. Ponctuation,
 accents et apostrophes sont corrects.
 
+**Test 2 — vocal WhatsApp réel (voix humaine, fr, 2,47 s)**
+
+Source : `.opus` mono 48 kHz (conteneur ogg, 18,6 kbit/s), converti en `.wav`
+16 kHz mono via ffmpeg. Transcription **correcte** : phrase cohérente,
+ponctuation et accents corrects, malgré la forte compression WhatsApp et une
+durée très courte. Contenu non reproduit (dépôt public).
+
+> ⚠️ `.opus` n'est **pas** accepté par `transcribe.py` : il ne figure pas dans
+> `SUPPORTED_EXTENSIONS` (`.mp3`, `.wav`, `.m4a`, `.mp4`). Ce n'est pas une
+> limite de mlx-whisper ni de ffmpeg, qui gèrent le format sans problème — il
+> faut convertir en amont :
+>
+> ```bash
+> ffmpeg -i entree.opus -ar 16000 -ac 1 sortie.wav
+> ```
+
 **Performance** (Mac M5, `whisper-large-v3-mlx`) :
 
 | Run | Durée | Détail |
 |---|---|---|
 | 1er | 4 min 16 s | dont 3 min 49 s de téléchargement du modèle (~3 Go) |
-| Suivants | 3,6 s | modèle en cache, pour 6,3 s d'audio |
+| Suivants | 3,1 – 3,6 s | modèle en cache, pour 2,5 – 6,3 s d'audio |
+
+Le temps est dominé par le chargement du modèle, pas par la durée de l'audio :
+ces mesures ne disent rien du débit sur un fichier long.
 
 ### Environnement de test (vérifié le 2026-08-06)
 
@@ -144,9 +167,12 @@ Mac M5 (`Darwin arm64`) — tout est en place :
 
 ### Reste à valider
 
-- Autres extensions : seul `.m4a` a été exécuté ; `.mp3`, `.wav`, `.mp4` sont
+- Autres extensions : `.m4a` et `.wav` ont été exécutés ; `.mp3` et `.mp4` sont
   acceptés par le code mais jamais passés dans `mlx_whisper`.
-- Vrai enregistrement humain (voix, bruit de fond) plutôt qu'un échantillon TTS.
+- Support natif de `.opus` / `.ogg` : à décider — conversion manuelle requise
+  aujourd'hui, alors que les vocaux WhatsApp sont en `.opus`.
+- Audio bruité ou à plusieurs locuteurs : les deux tests sont mono-locuteur et
+  propres.
 - Fichier long (> 30 min) : comportement mémoire et découpage non observés.
 - Autres langues et autres modèles que les valeurs par défaut.
 - Tests automatisés dans `tests/` : aucun pour l'instant, tout a été vérifié

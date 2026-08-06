@@ -36,6 +36,7 @@ htmlcov/
 *.webm
 audio/
 samples/
+test-audio/
 
 # Sorties de transcription
 *.srt
