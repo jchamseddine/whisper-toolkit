@@ -3,10 +3,9 @@
 CLI Python de transcription audio **locale**, basé sur Whisper.
 
 > **Statut : en cours de développement.** Transcription locale et diarisation
-> sont implémentées et exécutées de bout en bout. La diarisation n'a toutefois
-> **jamais été testée sur plusieurs locuteurs**, ce qui reste à valider. Batch,
-> YouTube et résumé ne sont pas commencés. Détail dans
-> [Testing Status](#testing-status).
+> sont implémentées et validées, séparation de deux locuteurs comprise — mais
+> sur des voix de synthèse, sans chevauchement de parole. Batch, YouTube et
+> résumé ne sont pas commencés. Détail dans [Testing Status](#testing-status).
 
 ## Fonctionnalités prévues
 
@@ -28,7 +27,7 @@ whisper-toolkit/
 ├── .gitignore
 ├── .env               # HF_TOKEN pour la diarisation (non versionné)
 ├── venv/              # environnement virtuel (non versionné)
-├── test-audio/        # échantillons audio de test (non versionné)
+├── test-audio/        # échantillons de test (ignoré, sauf la fixture synthétique)
 ├── output/            # transcriptions produites (non versionné)
 ├── src/
 │   ├── transcribe.py  # transcription simple (mlx-whisper)
@@ -156,14 +155,14 @@ signifie ici : lancé pour de vrai et sortie vérifiée — pas seulement compil
 | `src/diarize.py` | ✅ | ✅ | ✅ | pipeline complet validé le 2026-08-06 |
 | └ ASR faster-whisper | ✅ | ✅ | ✅ | `large-v3` int8 CPU, langue `fr` détectée seule |
 | └ alignement wav2vec2 | ✅ | ✅ | ✅ | 9 mots alignés, timings au mot |
-| └ `DiarizationPipeline` | ✅ | ✅ | ✅ | `community-1` chargée, 1 locuteur détecté |
-| └ `assign_word_speakers()` | ✅ | ✅ | ✅ | clé `speaker` présente sur le segment |
-| └ `save_diarized_transcript()` | ✅ | ✅ | ✅ | format `[SPEAKER_00] texte` vérifié |
+| └ `DiarizationPipeline` | ✅ | ✅ | ✅ | **2 locuteurs sur 2 séparés correctement** |
+| └ `assign_word_speakers()` | ✅ | ✅ | ✅ | labels distincts sur les deux segments |
+| └ `save_diarized_transcript()` | ✅ | ✅ | ✅ | format `[SPEAKER_XX] texte` vérifié |
 | └ `diarization_model` | ✅ | ✅ | ✅ | testé via `--diarization-model` sur un autre dépôt |
 | └ `_resolve_token()` | ✅ | ✅ | ✅ | absence de token détectée, message clair |
 | └ erreur 401 vs 403 | ✅ | ✅ | ✅ | messages distincts, vérifiés en vrai HTTP |
 | └ erreur fichier absent | ✅ | ✅ | ✅ | message clair + `exit 1` |
-| └ `--num-speakers` | ✅ | ✅ | ❌ | **jamais exercé** — échantillon mono-locuteur |
+| └ `--num-speakers` | ✅ | ✅ | ✅ | `2` respecté sur la fixture 2 voix |
 | `src/__init__.py` | ✅ (vide) | ✅ | n/a | simple marqueur de package |
 | YouTube (`yt-dlp`) | ❌ | — | — | dépendance installée, code non écrit |
 | Batch / surveillance dossier | ❌ | — | — | étape ultérieure |
@@ -173,8 +172,9 @@ signifie ici : lancé pour de vrai et sortie vérifiée — pas seulement compil
 ### Transcriptions réelles exécutées (2026-08-06)
 
 Les fichiers audio de test vivent dans `test-audio/`, **ignoré par git** — ce
-dépôt est public, aucun échantillon ne doit y être versionné. Le contenu des
-transcriptions n'est volontairement pas reproduit ici pour la même raison.
+dépôt est public, aucun enregistrement réel ne doit y être versionné. Seule
+exception : la fixture entièrement synthétique du test 4. Le contenu des
+transcriptions d'enregistrements réels n'est pas reproduit ici, même raison.
 
 **Test 1 — échantillon synthétique (voix macOS `Thomas`, fr_FR, 6,3 s, `.m4a`)**
 
@@ -238,11 +238,9 @@ Sortie : une ligne au format `[SPEAKER_00] <texte>`, soit exactement le format
 attendu (contenu non reproduit, dépôt public). **Run complet : 18,1 s**, modèles
 en cache.
 
-> ⚠️ **Un seul locuteur détecté, ce qui ne prouve rien sur la séparation des
-> voix.** L'échantillon est mono-locuteur : ce test valide que le pipeline
-> s'exécute, pas qu'il distingue correctement plusieurs personnes. `SPEAKER_00`
-> est le seul label possible ici. La vraie validation demande un fichier
-> multi-voix.
+Un seul locuteur ici, l'échantillon étant mono-locuteur : ce test valide
+l'exécution du pipeline, pas la séparation des voix. Celle-ci fait l'objet du
+test 4.
 
 **Historique du blocage** (résolu). Le premier run avec token valide échouait
 en **403** : les conditions de `community-1` n'avaient pas été acceptées sur le
@@ -261,10 +259,6 @@ mlx-whisper produisent des transcriptions qui diffèrent d'un mot (58 vs
 57 caractères). Rien d'anormal — deux implémentations, deux quantifications —
 mais à garder en tête : les deux pipelines ne sont pas interchangeables au
 caractère près.
-| `save_diarized_transcript()` | ❌ | non atteinte |
-
-Le texte produit par faster-whisper fait la même longueur que celui de
-`transcribe.py` sur le même extrait (contenu non reproduit, dépôt public).
 
 **Le coût du CPU est mesuré, pas supposé** (modèles en cache) :
 
@@ -296,6 +290,62 @@ vraie réponse HTTP :
 Les quatre sortent en `exit 1`. Le cas 403 nomme le modèle réellement demandé,
 donc le lien reste correct même avec `--diarization-model`.
 
+### Test 4 — séparation de deux locuteurs (2026-08-07)
+
+Premier test qui valide la **raison d'être** de la diarisation, et non seulement
+son exécution. Fixture : `test-audio/two_voices_generated.wav`, 9,5 s.
+
+**Vérité terrain**, établie par mesure et non par confiance :
+
+| | |
+|---|---|
+| Voix 1 | `Amélie` (fr_CA), F0 médiane **225 Hz**, 0 → 4,06 s |
+| Voix 2 | `Thomas` (fr_FR), F0 médiane **128 Hz**, 4,06 → 9,48 s |
+| Bascule | **4,06 s** (fin de la première réplique) |
+
+**Résultat**, avec `--num-speakers 2` :
+
+| start | end | speaker | voix réelle |
+|---|---|---|---|
+| 0,23 s | 4,08 s | `SPEAKER_01` | Amélie |
+| 4,13 s | 9,36 s | `SPEAKER_00` | Thomas |
+
+| Critère | Attendu | Obtenu | |
+|---|---|---|---|
+| Nombre de locuteurs | 2 | 2 | ✅ |
+| Nombre de segments | 2 | 2 | ✅ |
+| Point de bascule | 4,06 s | 4,08 – 4,13 s | ✅ à **±70 ms** |
+| Mélange de voix | aucun | aucun | ✅ |
+
+L'écart de 20 à 70 ms correspond au silence entre les deux répliques : les
+bornes tombent de part et d'autre de la jonction réelle. Run complet : 17,5 s.
+
+> ⚠️ **Les labels `SPEAKER_XX` ne suivent pas l'ordre d'apparition.** Ici Amélie
+> parle en premier et reçoit `SPEAKER_01`, tandis que Thomas reçoit
+> `SPEAKER_00`. Ne jamais supposer que `SPEAKER_00` est le premier à parler :
+> les identifiants sont arbitraires et stables seulement à l'intérieur d'un run.
+
+**À propos de la fixture.** `test-audio/two_voices_generated.wav` est le seul
+fichier audio versionné du dépôt (exception explicite dans `.gitignore`). Il est
+**intégralement synthétique**, généré avec la commande macOS `say` à partir de
+deux voix système, puis concaténé avec ffmpeg :
+
+```bash
+say -v "Amélie" -o a.aiff "…"      # attention à l'accent, voir ci-dessous
+say -v Thomas   -o b.aiff "…"
+# conversion en wav 16 kHz mono, puis concat ffmpeg
+```
+
+Aucune voix réelle, aucune donnée personnelle. Il sert de fixture de
+non-régression pour `diarize.py`.
+
+> ⚠️ **Piège `say` : le nom de voix doit être exact, accents compris.**
+> `say -v Amelie` (sans accent) ne lève **aucune erreur** — la commande retombe
+> silencieusement sur la voix par défaut. On obtient alors deux extraits de la
+> *même* voix, et une fixture qui ne teste rien. Le contrôle qui l'a révélé :
+> mesurer la F0 des deux extraits avant de s'en servir. 225 Hz contre 128 Hz
+> valide la fixture ; deux valeurs voisines la disqualifient.
+
 ### Environnement de test (vérifié le 2026-08-06)
 
 Mac M5 (`Darwin arm64`) — tout est en place :
@@ -326,12 +376,14 @@ Mac M5 (`Darwin arm64`) — tout est en place :
 
 ### Reste à valider
 
-- **Fichier à plusieurs locuteurs** : c'est le point ouvert principal. Tous les
-  tests sont mono-locuteur, donc **aucune séparation de voix n'a jamais été
-  observée** — le pipeline s'exécute, mais sa raison d'être n'est pas validée.
-  `--num-speakers` est câblé et jamais exercé.
-- **Qualité de la diarisation** : ni chevauchement de parole, ni changement de
-  locuteur, ni attribution erronée n'ont pu être constatés.
+- **Diarisation en conditions réalistes** : la séparation est validée, mais sur
+  un cas facile — deux voix de synthèse, très éloignées en hauteur, sans
+  chevauchement, avec une seule bascule. Restent non testés : le chevauchement
+  de parole, les tours de parole rapprochés, deux voix proches, plus de deux
+  locuteurs, et de vraies voix humaines dans du bruit.
+- **Détection automatique du nombre de locuteurs** : toujours testée avec
+  `--num-speakers` explicite, jamais en laissant pyannote décider seul sur un
+  fichier multi-voix.
 - Autres extensions : `.m4a`, `.wav`, `.opus` et `.ogg` ont été exécutés ;
   `.mp3` et `.mp4` sont acceptés par le code mais jamais passés dans
   `mlx_whisper`.

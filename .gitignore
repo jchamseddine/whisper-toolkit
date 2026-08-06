@@ -31,12 +31,21 @@ htmlcov/
 *.flac
 *.ogg
 *.opus
+*.aiff
+*.aif
 *.mp4
 *.mkv
 *.webm
 audio/
 samples/
-test-audio/
+
+# Échantillons audio de test : tout est ignoré par défaut. `test-audio/*` et non
+# `test-audio/` car git ne sait pas ré-inclure un fichier sous un dossier exclu.
+test-audio/*
+
+# Seule exception : fixture synthétique générée avec `say`, sans donnée
+# personnelle. La négation doit venir après `*.wav` et `test-audio/*`.
+!test-audio/two_voices_generated.wav
 
 # Sorties de transcription
 *.srt
