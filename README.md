@@ -2,10 +2,11 @@
 
 CLI Python de transcription audio **locale**, basé sur Whisper.
 
-> **Statut : en cours de développement.** La transcription locale est
-> implémentée et testée. La diarisation est écrite mais **partiellement
-> validée** : il manque un token Hugging Face pour l'exécuter. Batch, YouTube et
-> résumé ne sont pas commencés. Détail dans [Testing Status](#testing-status).
+> **Statut : en cours de développement.** Transcription locale et diarisation
+> sont implémentées et exécutées de bout en bout. La diarisation n'a toutefois
+> **jamais été testée sur plusieurs locuteurs**, ce qui reste à valider. Batch,
+> YouTube et résumé ne sont pas commencés. Détail dans
+> [Testing Status](#testing-status).
 
 ## Fonctionnalités prévues
 
@@ -152,15 +153,17 @@ signifie ici : lancé pour de vrai et sortie vérifiée — pas seulement compil
 | └ CLI `argparse` | ✅ | ✅ | ✅ | `--help`, run nominal, codes de sortie |
 | └ erreur fichier absent | ✅ | ✅ | ✅ | message clair + `exit 1` |
 | └ erreur extension | ✅ | ✅ | ✅ | message clair + `exit 1` |
-| `src/diarize.py` | ✅ | ✅ | ⚠️ **partiel** | bloqué sur le token HF, voir ci-dessous |
+| `src/diarize.py` | ✅ | ✅ | ✅ | pipeline complet validé le 2026-08-06 |
 | └ ASR faster-whisper | ✅ | ✅ | ✅ | `large-v3` int8 CPU, langue `fr` détectée seule |
 | └ alignement wav2vec2 | ✅ | ✅ | ✅ | 9 mots alignés, timings au mot |
-| └ `DiarizationPipeline` | ✅ | ✅ | ❌ | **jamais exécutée** — modèle pyannote sous conditions |
-| └ `assign_word_speakers()` | ✅ | ✅ | ❌ | jamais atteinte |
-| └ `save_diarized_transcript()` | ✅ | ✅ | ❌ | jamais atteinte |
+| └ `DiarizationPipeline` | ✅ | ✅ | ✅ | `community-1` chargée, 1 locuteur détecté |
+| └ `assign_word_speakers()` | ✅ | ✅ | ✅ | clé `speaker` présente sur le segment |
+| └ `save_diarized_transcript()` | ✅ | ✅ | ✅ | format `[SPEAKER_00] texte` vérifié |
+| └ `diarization_model` | ✅ | ✅ | ✅ | testé via `--diarization-model` sur un autre dépôt |
 | └ `_resolve_token()` | ✅ | ✅ | ✅ | absence de token détectée, message clair |
-| └ erreur token invalide | ✅ | ✅ | ✅ | `GatedRepoError` attrapée → message clair + `exit 1` |
+| └ erreur 401 vs 403 | ✅ | ✅ | ✅ | messages distincts, vérifiés en vrai HTTP |
 | └ erreur fichier absent | ✅ | ✅ | ✅ | message clair + `exit 1` |
+| └ `--num-speakers` | ✅ | ✅ | ❌ | **jamais exercé** — échantillon mono-locuteur |
 | `src/__init__.py` | ✅ (vide) | ✅ | n/a | simple marqueur de package |
 | YouTube (`yt-dlp`) | ❌ | — | — | dépendance installée, code non écrit |
 | Batch / surveillance dossier | ❌ | — | — | étape ultérieure |
@@ -214,36 +217,11 @@ caractère près** dans les quatre cas.
 Le temps est dominé par le chargement du modèle, pas par la durée de l'audio :
 ces mesures ne disent rien du débit sur un fichier long.
 
-### Test 3 — `diarize.py`, validation partielle (2026-08-06)
+### Test 3 — `diarize.py`, pipeline complet validé (2026-08-06)
 
-**La diarisation elle-même n'a toujours pas tourné.** Deux tentatives, deux
-causes différentes — la seconde reste bloquante :
-
-| Tentative | Résultat |
-|---|---|
-| Sans `.env` | token absent → message clair, `exit 1` (comportement attendu) |
-| Avec `.env` et `HF_TOKEN` valide | **403** sur `pyannote/speaker-diarization-community-1` : le compte n'est pas dans la liste autorisée |
-
-Le token lui-même est bon : il se charge, `whoami` répond, et c'est un token
-classique en lecture. Le blocage porte uniquement sur **l'accès au dépôt
-`community-1`**, dont les conditions n'ont pas été acceptées sur ce compte.
-
-Vérifié dépôt par dépôt avec ce token :
-
-| Dépôt pyannote | Contenu téléchargeable |
-|---|---|
-| `speaker-diarization-3.1` | ✅ |
-| `segmentation-3.0` | ✅ |
-| `speaker-diarization-community-1` | ❌ 403 |
-
-> **Aucun contournement par paramètre n'existe.** Pointer explicitement
-> `DiarizationPipeline(model_name="pyannote/speaker-diarization-3.1")` échoue
-> aussi : avec `pyannote.audio` 4.0.7, le pipeline 3.1 finit par réclamer des
-> ressources hébergées dans `community-1` (`plda/xvec_transform.npz`) et
-> retombe sur un 401. Il faut accepter les conditions de `community-1`.
-
-Tout ce qui précède l'étape de diarisation a en revanche été exécuté pour de
-vrai sur le vocal WhatsApp (2,47 s, `.opus`) :
+**La diarisation tourne de bout en bout.** Après acceptation des conditions de
+`pyannote/speaker-diarization-community-1`, le pipeline entier s'exécute sans
+erreur sur le vocal WhatsApp (2,47 s, `.opus`) :
 
 | Étape du pipeline | Statut | Détail mesuré |
 |---|---|---|
@@ -252,8 +230,37 @@ vrai sur le vocal WhatsApp (2,47 s, `.opus`) :
 | VAD pyannote | ✅ | exécutée sans erreur |
 | `.transcribe()` | ✅ | langue `fr` détectée seule (confiance 1.00), 1 segment |
 | `load_align_model` + `align` | ✅ | 9 mots alignés, segment 0,28 s → 2,40 s |
-| `DiarizationPipeline` | ❌ | **non exécutée**, 403 sur le dépôt |
-| `assign_word_speakers` | ❌ | non atteinte |
+| `DiarizationPipeline` | ✅ | `community-1` chargée sur CPU |
+| `assign_word_speakers` | ✅ | clé `speaker` présente sur le segment |
+| `save_diarized_transcript()` | ✅ | fichier `output/..._diarized.txt` écrit et relu |
+
+Sortie : une ligne au format `[SPEAKER_00] <texte>`, soit exactement le format
+attendu (contenu non reproduit, dépôt public). **Run complet : 18,1 s**, modèles
+en cache.
+
+> ⚠️ **Un seul locuteur détecté, ce qui ne prouve rien sur la séparation des
+> voix.** L'échantillon est mono-locuteur : ce test valide que le pipeline
+> s'exécute, pas qu'il distingue correctement plusieurs personnes. `SPEAKER_00`
+> est le seul label possible ici. La vraie validation demande un fichier
+> multi-voix.
+
+**Historique du blocage** (résolu). Le premier run avec token valide échouait
+en **403** : les conditions de `community-1` n'avaient pas été acceptées sur le
+compte, alors que celles de la famille 3.1 l'étaient. Aucun contournement par
+paramètre n'existait — avec `pyannote.audio` 4.0.7, pointer explicitement
+`speaker-diarization-3.1` réclame quand même `plda/xvec_transform.npz`, hébergé
+dans `community-1`, et retombe sur un 401.
+
+> ℹ️ **Le token n'est requis qu'au premier téléchargement.** Une fois les poids
+> pyannote en cache local, `Pipeline.from_pretrained` ne le consulte plus : un
+> token invalide, ou absent, passe alors sans erreur. Constaté en tentant de
+> rejouer les cas d'erreur après un run réussi.
+
+**Écart entre les deux backends.** Sur le même extrait, faster-whisper et
+mlx-whisper produisent des transcriptions qui diffèrent d'un mot (58 vs
+57 caractères). Rien d'anormal — deux implémentations, deux quantifications —
+mais à garder en tête : les deux pipelines ne sont pas interchangeables au
+caractère près.
 | `save_diarized_transcript()` | ❌ | non atteinte |
 
 Le texte produit par faster-whisper fait la même longueur que celui de
@@ -276,16 +283,18 @@ le téléchargement des modèles (`large-v3` CTranslate2 + wav2vec2 français).
 
 **Erreurs vérifiées en conditions réelles :**
 
-| Cas | Résultat |
-|---|---|
-| Aucun token (`.env` absent) | message pointant vers huggingface.co/settings/tokens, `exit 1` |
-| Token invalide | `GatedRepoError` de pyannote attrapée → même message clair, `exit 1` |
-| Token valide mais dépôt non autorisé | `GatedRepoError` (403) attrapée → même message clair, `exit 1` |
-| Fichier introuvable | `Fichier introuvable : ...`, `exit 1` |
+Les trois cas de token sont désormais **distingués**, chacun vérifié contre une
+vraie réponse HTTP :
 
-Le message d'erreur unique couvre bien les trois cas de token, mais il ne
-distingue pas « token absent » de « conditions du modèle non acceptées » — or
-c'est précisément la seconde qui s'est produite ici. À affiner.
+| Cas | Message produit | Vérifié avec |
+|---|---|---|
+| Token absent | « Token Hugging Face introuvable » + lien vers les réglages de token | `load_dotenv` neutralisé, `HF_TOKEN` retiré |
+| Token invalide (**401**) | « Token refusé » → régénérer le token | token bidon sur un dépôt gated non caché |
+| Conditions non acceptées (**403**) | « Accès refusé au modèle *X* » → lien direct vers la page HF **du modèle demandé** | token valide sur `pyannote/speaker-diarization` |
+| Fichier introuvable | `Fichier introuvable : ...` | chemin inexistant |
+
+Les quatre sortent en `exit 1`. Le cas 403 nomme le modèle réellement demandé,
+donc le lien reste correct même avec `--diarization-model`.
 
 ### Environnement de test (vérifié le 2026-08-06)
 
@@ -301,7 +310,7 @@ Mac M5 (`Darwin arm64`) — tout est en place :
 | `ffmpeg` | ✅ 8.1.2 dans le `PATH` |
 | `anthropic` | ❌ non installé, pas encore requis |
 | `HF_TOKEN` / `.env` | ✅ présent et valide (token classique, lecture) |
-| Accès `pyannote/speaker-diarization-community-1` | ❌ **403** — bloque la diarisation |
+| Accès `pyannote/speaker-diarization-community-1` | ✅ conditions acceptées |
 
 > ⚠️ La section « État d'installation par machine » ci-dessus décrit une machine
 > Windows 11 / Python 3.14 : elle est **obsolète** et ne correspond pas à la
@@ -317,13 +326,12 @@ Mac M5 (`Darwin arm64`) — tout est en place :
 
 ### Reste à valider
 
-- **Diarisation réelle** : `DiarizationPipeline` n'a toujours jamais tourné.
-  Point bloquant de l'étape 4 — il faut accepter les conditions de
-  `pyannote/speaker-diarization-community-1` sur le compte Hugging Face qui
-  détient le token.
-- **Fichier à plusieurs locuteurs** : tous les tests sont mono-locuteur, donc
-  aucune séparation de voix n'a jamais été observée. `--num-speakers` est câblé
-  mais jamais exercé.
+- **Fichier à plusieurs locuteurs** : c'est le point ouvert principal. Tous les
+  tests sont mono-locuteur, donc **aucune séparation de voix n'a jamais été
+  observée** — le pipeline s'exécute, mais sa raison d'être n'est pas validée.
+  `--num-speakers` est câblé et jamais exercé.
+- **Qualité de la diarisation** : ni chevauchement de parole, ni changement de
+  locuteur, ni attribution erronée n'ont pu être constatés.
 - Autres extensions : `.m4a`, `.wav`, `.opus` et `.ogg` ont été exécutés ;
   `.mp3` et `.mp4` sont acceptés par le code mais jamais passés dans
   `mlx_whisper`.

@@ -12,19 +12,19 @@ import sys
 from dotenv import load_dotenv
 
 DEFAULT_MODEL = "large-v3"
+DEFAULT_DIARIZATION_MODEL = "pyannote/speaker-diarization-community-1"
 TOKEN_ENV_VAR = "HF_TOKEN"
+TOKENS_URL = "https://huggingface.co/settings/tokens"
 
 # CTranslate2 ne gère ni Metal ni MPS : CPU obligatoire. int8 plutôt que le
 # float32 par défaut, sinon large-v3 sur CPU est très lent.
 DEVICE = "cpu"
 COMPUTE_TYPE = "int8"
 
-TOKEN_HELP = (
-    f"Token Hugging Face manquant ou refusé.\n"
-    f"1. Crée un token sur https://huggingface.co/settings/tokens\n"
-    f"2. Accepte les conditions du modèle "
-    f"https://huggingface.co/pyannote/speaker-diarization-community-1\n"
-    f"3. Renseigne-le dans un fichier .env à la racine du projet :\n"
+MISSING_TOKEN_HELP = (
+    f"Token Hugging Face introuvable.\n"
+    f"1. Crée un token sur {TOKENS_URL}\n"
+    f"2. Renseigne-le dans un fichier .env à la racine du projet :\n"
     f"       {TOKEN_ENV_VAR}=hf_xxxxxxxxxxxxxxxx\n"
     f"   (ou passe-le en argument à diarize_file)"
 )
@@ -38,9 +38,56 @@ def _resolve_token(hf_token: str | None) -> str:
     load_dotenv()
     token = os.getenv(TOKEN_ENV_VAR)
     if not token:
-        raise ValueError(TOKEN_HELP)
+        raise ValueError(MISSING_TOKEN_HELP)
 
     return token
+
+
+def _http_status(error: Exception) -> int | None:
+    """Extrait le code HTTP d'une erreur huggingface_hub, si présent."""
+    status = getattr(getattr(error, "response", None), "status_code", None)
+    if status is not None:
+        return status
+
+    # pyannote ré-emballe parfois l'erreur en perdant l'objet `response`.
+    message = str(error)
+    for code in (401, 403):
+        if f"{code} Client Error" in message:
+            return code
+
+    return None
+
+
+def _diarization_error_help(error: Exception, diarization_model: str) -> str:
+    """Traduit un échec de chargement pyannote en message actionnable.
+
+    401 et 403 remontent tous deux en `GatedRepoError`, mais appellent des
+    corrections opposées : refaire le token, ou accepter les conditions.
+    """
+    status = _http_status(error)
+
+    if status == 403:
+        return (
+            f"Accès refusé au modèle {diarization_model} (HTTP 403).\n"
+            f"Le token est valide, mais les conditions d'utilisation de ce modèle\n"
+            f"n'ont pas été acceptées sur le compte qui le détient.\n"
+            f"→ Accepte-les sur https://huggingface.co/{diarization_model}\n"
+            f"  (l'accès est accordé immédiatement), puis relance."
+        )
+
+    if status == 401:
+        return (
+            f"Token Hugging Face refusé (HTTP 401).\n"
+            f"Il est invalide, expiré, ou n'a pas le droit de lire les dépôts\n"
+            f"sous conditions d'accès.\n"
+            f"→ Vérifie ou régénère-le sur {TOKENS_URL},\n"
+            f"  puis mets à jour {TOKEN_ENV_VAR} dans .env."
+        )
+
+    return (
+        f"Échec du chargement du modèle de diarisation {diarization_model}.\n"
+        f"Détail : {error}"
+    )
 
 
 def diarize_file(
@@ -48,6 +95,7 @@ def diarize_file(
     hf_token: str | None = None,
     model: str = DEFAULT_MODEL,
     num_speakers: int | None = None,
+    diarization_model: str = DEFAULT_DIARIZATION_MODEL,
 ) -> list[dict]:
     """Transcrit, aligne et diarise un fichier audio.
 
@@ -73,12 +121,12 @@ def diarize_file(
     result = whisperx.align(result["segments"], align_model, metadata, audio, DEVICE)
 
     try:
-        diarize_pipeline = DiarizationPipeline(token=token, device=DEVICE)
+        diarize_pipeline = DiarizationPipeline(
+            model_name=diarization_model, token=token, device=DEVICE
+        )
     except Exception as error:
-        # pyannote remonte selon les cas une erreur HTTP, ou un None qui casse
-        # au .to(device) : dans les deux cas c'est le token ou l'acceptation
-        # des conditions du modèle qui manque.
-        raise ValueError(f"{TOKEN_HELP}\n\nDétail : {error}") from error
+        # pyannote remonte une erreur HTTP, ou un None qui casse au .to(device).
+        raise ValueError(_diarization_error_help(error, diarization_model)) from error
 
     diarize_segments = diarize_pipeline(audio, num_speakers=num_speakers)
     result = whisperx.assign_word_speakers(diarize_segments, result)
@@ -123,11 +171,19 @@ def main() -> None:
         default=None,
         help="Nombre exact de locuteurs, si connu (sinon détecté automatiquement)",
     )
+    parser.add_argument(
+        "--diarization-model",
+        default=DEFAULT_DIARIZATION_MODEL,
+        help=f"Modèle de diarisation pyannote (défaut : {DEFAULT_DIARIZATION_MODEL})",
+    )
     args = parser.parse_args()
 
     try:
         segments = diarize_file(
-            args.audio_path, model=args.model, num_speakers=args.num_speakers
+            args.audio_path,
+            model=args.model,
+            num_speakers=args.num_speakers,
+            diarization_model=args.diarization_model,
         )
     except (FileNotFoundError, ValueError) as error:
         print(f"Erreur : {error}", file=sys.stderr)
