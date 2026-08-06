@@ -82,6 +82,57 @@ Python 3.12 n'est pas encore installé sur cette machine (seul 3.14 l'est).
 Ce point est sans impact sur la machine cible : sur le Mac M5, il suffit
 d'utiliser un Python 3.12/3.13 pour le venv.
 
+## Testing Status
+
+Suivi de ce qui est **écrit** vs ce qui est **réellement validé**, pour savoir
+exactement quoi vérifier une fois l'environnement complet en place. À mettre à
+jour à chaque étape.
+
+| Module | Écrit | Compile | Testé à l'exécution | Notes |
+|---|---|---|---|---|
+| `src/__init__.py` | ✅ (vide) | ✅ | n/a | simple marqueur de package |
+| `src/transcribe.py` | ❌ **pas encore créé** | — | — | prévu à l'étape 3 |
+| CLI `argparse` | ❌ | — | — | étape ultérieure |
+| Diarisation (`whisperx`) | ❌ | — | — | étape ultérieure |
+| YouTube (`yt-dlp`) | ❌ | — | — | étape ultérieure |
+| Résumé (API Claude) | ❌ | — | — | étape ultérieure |
+| `tests/` | ❌ vide | — | — | aucun test écrit |
+
+**Aucun code de transcription n'a encore été écrit** : il n'y a donc, à ce jour,
+rien à compiler ni à exécuter. Le tableau existe pour être rempli au fur et à
+mesure, pas pour documenter une dette de tests.
+
+### État de la machine de dev (vérifié le 2026-08-06)
+
+La machine courante est bien un **macOS Apple Silicon (`arm64`)**, mais
+l'environnement n'y est pas encore installé — aucun test réel n'est possible
+en l'état :
+
+| Élément | Statut |
+|---|---|
+| `venv/` | ❌ absent |
+| Python disponible | 3.14.6 (Homebrew) — trop récent pour `whisperx` |
+| `mlx-whisper` | ❌ non installé |
+| `whisperx` | ❌ non installé |
+| `yt-dlp` | ❌ non installé |
+| `anthropic` | ❌ non installé (et pas encore dans `requirements.txt`) |
+| `ffmpeg` | ❌ absent du `PATH` |
+
+> ⚠️ La section « État d'installation par machine » ci-dessus décrit une machine
+> Windows 11 / Python 3.14 ; elle ne correspond plus à la machine sur laquelle
+> ce dépôt est actuellement ouvert.
+
+### À valider une fois l'environnement en place
+
+1. Créer le `venv` avec **Python 3.12 ou 3.13** (3.14 casse `whisperx`, cf.
+   ci-dessus) — aucun des deux n'est installé sur cette machine pour l'instant.
+2. `pip install -r requirements.txt` → vérifier que `mlx-whisper` s'installe
+   effectivement (marqueur d'environnement satisfait sur Apple Silicon).
+3. Installer `ffmpeg` et vérifier sa présence dans le `PATH`.
+4. `python -m py_compile src/*.py` sur les modules une fois écrits.
+5. Vérifier que `import mlx_whisper` fonctionne, puis lancer une transcription
+   réelle sur un fichier audio court.
+
 ## Développement
 
 Les conventions de contribution et le contexte du projet sont dans
