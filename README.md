@@ -216,19 +216,45 @@ ces mesures ne disent rien du débit sur un fichier long.
 
 ### Test 3 — `diarize.py`, validation partielle (2026-08-06)
 
-**La diarisation elle-même n'a jamais tourné.** Le modèle
-`pyannote/speaker-diarization-community-1` est sous conditions d'accès et aucun
-token Hugging Face n'est disponible sur la machine. Tout ce qui précède cette
-étape a en revanche été exécuté sur le vocal WhatsApp (2,47 s, `.opus`) :
+**La diarisation elle-même n'a toujours pas tourné.** Deux tentatives, deux
+causes différentes — la seconde reste bloquante :
+
+| Tentative | Résultat |
+|---|---|
+| Sans `.env` | token absent → message clair, `exit 1` (comportement attendu) |
+| Avec `.env` et `HF_TOKEN` valide | **403** sur `pyannote/speaker-diarization-community-1` : le compte n'est pas dans la liste autorisée |
+
+Le token lui-même est bon : il se charge, `whoami` répond, et c'est un token
+classique en lecture. Le blocage porte uniquement sur **l'accès au dépôt
+`community-1`**, dont les conditions n'ont pas été acceptées sur ce compte.
+
+Vérifié dépôt par dépôt avec ce token :
+
+| Dépôt pyannote | Contenu téléchargeable |
+|---|---|
+| `speaker-diarization-3.1` | ✅ |
+| `segmentation-3.0` | ✅ |
+| `speaker-diarization-community-1` | ❌ 403 |
+
+> **Aucun contournement par paramètre n'existe.** Pointer explicitement
+> `DiarizationPipeline(model_name="pyannote/speaker-diarization-3.1")` échoue
+> aussi : avec `pyannote.audio` 4.0.7, le pipeline 3.1 finit par réclamer des
+> ressources hébergées dans `community-1` (`plda/xvec_transform.npz`) et
+> retombe sur un 401. Il faut accepter les conditions de `community-1`.
+
+Tout ce qui précède l'étape de diarisation a en revanche été exécuté pour de
+vrai sur le vocal WhatsApp (2,47 s, `.opus`) :
 
 | Étape du pipeline | Statut | Détail mesuré |
 |---|---|---|
 | `whisperx.load_audio` | ✅ | 39 256 échantillons à 16 kHz |
 | `whisperx.load_model` | ✅ | `large-v3` int8 CPU |
-| `.transcribe()` | ✅ | langue `fr` détectée seule, 1 segment |
+| VAD pyannote | ✅ | exécutée sans erreur |
+| `.transcribe()` | ✅ | langue `fr` détectée seule (confiance 1.00), 1 segment |
 | `load_align_model` + `align` | ✅ | 9 mots alignés, segment 0,28 s → 2,40 s |
-| `DiarizationPipeline` | ❌ | **non exécutée**, token requis |
+| `DiarizationPipeline` | ❌ | **non exécutée**, 403 sur le dépôt |
 | `assign_word_speakers` | ❌ | non atteinte |
+| `save_diarized_transcript()` | ❌ | non atteinte |
 
 Le texte produit par faster-whisper fait la même longueur que celui de
 `transcribe.py` sur le même extrait (contenu non reproduit, dépôt public).
@@ -254,7 +280,12 @@ le téléchargement des modèles (`large-v3` CTranslate2 + wav2vec2 français).
 |---|---|
 | Aucun token (`.env` absent) | message pointant vers huggingface.co/settings/tokens, `exit 1` |
 | Token invalide | `GatedRepoError` de pyannote attrapée → même message clair, `exit 1` |
+| Token valide mais dépôt non autorisé | `GatedRepoError` (403) attrapée → même message clair, `exit 1` |
 | Fichier introuvable | `Fichier introuvable : ...`, `exit 1` |
+
+Le message d'erreur unique couvre bien les trois cas de token, mais il ne
+distingue pas « token absent » de « conditions du modèle non acceptées » — or
+c'est précisément la seconde qui s'est produite ici. À affiner.
 
 ### Environnement de test (vérifié le 2026-08-06)
 
@@ -269,23 +300,27 @@ Mac M5 (`Darwin arm64`) — tout est en place :
 | `python-dotenv` | ✅ 1.2.2 |
 | `ffmpeg` | ✅ 8.1.2 dans le `PATH` |
 | `anthropic` | ❌ non installé, pas encore requis |
-| `HF_TOKEN` / `.env` | ❌ **absent** — bloque la diarisation |
+| `HF_TOKEN` / `.env` | ✅ présent et valide (token classique, lecture) |
+| Accès `pyannote/speaker-diarization-community-1` | ❌ **403** — bloque la diarisation |
 
 > ⚠️ La section « État d'installation par machine » ci-dessus décrit une machine
 > Windows 11 / Python 3.14 : elle est **obsolète** et ne correspond pas à la
 > machine de dev actuelle.
 
-> ⚠️ `torchcodec` est cassé dans ce venv : il attend les bibliothèques ffmpeg 4
+> ℹ️ `torchcodec` est cassé dans ce venv : il attend les bibliothèques ffmpeg 4
 > à 7 (`libavutil.56` à `.59`) alors que la machine a ffmpeg 8.1.2
-> (`libavutil.60`), d'où un avertissement pyannote au démarrage. **Sans impact
-> observé** : whisperx pré-charge l'audio en mémoire et le passe à pyannote sous
-> forme de waveform, ce qui est précisément le contournement documenté. À
-> surveiller si la diarisation échoue une fois le token en place.
+> (`libavutil.60`), d'où un avertissement pyannote bruyant au démarrage.
+> **Confirmé sans impact** : la VAD pyannote, la détection de langue, l'ASR et
+> l'alignement tournent tous normalement. whisperx pré-charge l'audio en mémoire
+> et le passe sous forme de waveform, ce qui est exactement le contournement
+> documenté par pyannote. Ce n'est pas la cause du blocage de la diarisation.
 
 ### Reste à valider
 
-- **Diarisation réelle** : `DiarizationPipeline` n'a jamais tourné faute de
-  token. C'est le point bloquant de l'étape 4.
+- **Diarisation réelle** : `DiarizationPipeline` n'a toujours jamais tourné.
+  Point bloquant de l'étape 4 — il faut accepter les conditions de
+  `pyannote/speaker-diarization-community-1` sur le compte Hugging Face qui
+  détient le token.
 - **Fichier à plusieurs locuteurs** : tous les tests sont mono-locuteur, donc
   aucune séparation de voix n'a jamais été observée. `--num-speakers` est câblé
   mais jamais exercé.
