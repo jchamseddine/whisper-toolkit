@@ -6,5 +6,8 @@ mlx-whisper; sys_platform == "darwin" and platform_machine == "arm64"
 # Diarisation (identification des locuteurs)
 whisperx
 
+# Lecture du token Hugging Face depuis .env (requis par src/diarize.py)
+python-dotenv
+
 # Téléchargement audio depuis YouTube & co.
 yt-dlp
