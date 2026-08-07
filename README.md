@@ -67,8 +67,9 @@ Il démarre Streamlit en sous-processus, attend que le serveur réponde (15 s
 maximum), puis ouvre la fenêtre. À la fermeture de celle-ci, le serveur est
 arrêté avec toute sa descendance — `lsof -i :8501` doit être vide juste après.
 Si le serveur ne répond pas dans le délai, aucune fenêtre n'est ouverte : le
-script écrit l'erreur sur sa sortie d'erreur et s'arrête, ce qui fait remonter
-le message dans la boîte de dialogue d'Automator.
+script écrit l'erreur sur sa sortie d'erreur et s'arrête. Lancé par l'applet,
+tout cela part dans `~/Library/Logs/WhisperToolkit.log`, dont l'applet remonte
+la fin dans une boîte de dialogue — voir *L'app Automator* plus bas.
 
 Cinq points méritent d'être connus avant d'y toucher :
 
@@ -124,13 +125,11 @@ Quatre détails décident du résultat, et chacun se venge en silence :
 l'app lancée par l'applet — mais reste utile en développement, quand on lance
 `python launch_desktop.py` depuis un terminal, sans passer par le bundle.
 
-**Deux icônes apparaissent toujours dans le Dock** : l'applet Automator reste en
-vie tant que son script tourne et occupe une tuile, le processus Python en
-occupe une seconde. Les deux portent désormais le bon nom et la bonne icône,
-mais elles restent deux. Les réunir demanderait `py2app` — un vrai bundle
-autonome, au prix d'une dépendance de build, d'une étape de packaging à refaire
-à chaque modification du code, et de plusieurs centaines de Mo une fois
-`mlx-whisper` et `whisperx` embarqués. Non fait, à arbitrer.
+**Une seule tuile apparaît dans le Dock**, et cela tient au script de l'applet
+plus qu'au bundle. Un applet Automator vit aussi longtemps que son script :
+tant qu'il attendait la fin de Python, il occupait sa propre tuile en plus de
+celle de l'app. Il lance donc désormais Python en arrière-plan, puis se retire
+dès que Streamlit répond.
 
 #### L'app Automator
 
@@ -146,9 +145,45 @@ puis Automator › Application › action *Exécuter un script Shell*, shell
 
 ```bash
 cd ~/Code/whisper-toolkit
+
 LANCEUR="$HOME/Library/Application Support/Whisper Toolkit/Whisper Toolkit.app/Contents/MacOS/Whisper Toolkit"
-__PYVENV_LAUNCHER__="$PWD/venv/bin/python" exec "$LANCEUR" launch_desktop.py
+JOURNAL="$HOME/Library/Logs/WhisperToolkit.log"
+
+mkdir -p "$(dirname "$JOURNAL")"
+echo "=== $(date) ===" > "$JOURNAL"
+
+__PYVENV_LAUNCHER__="$PWD/venv/bin/python" nohup "$LANCEUR" launch_desktop.py >> "$JOURNAL" 2>&1 &
+PID=$!
+disown
+
+for _ in {1..80}; do
+    sleep 0.25
+    if ! kill -0 $PID 2>/dev/null; then
+        { tail -n 3 "$JOURNAL"; echo; echo "Journal complet : $JOURNAL"; } >&2
+        exit 1
+    fi
+    curl -sf -m 1 http://localhost:8501/_stcore/health >/dev/null 2>&1 && exit 0
+done
+exit 0
 ```
+
+La boucle n'est pas décorative. Rendre la main aussitôt après le `&` rendrait
+tout échec au démarrage parfaitement muet : ni terminal, ni dialogue. L'applet
+surveille donc jusqu'à ce que Streamlit réponde — l'app est visible, il n'a plus
+lieu d'être — ou que le processus meure, seul cas où il a quelque chose à dire.
+
+**Le couple « message sur stderr + `exit 1` » est ce qui déclenche la boîte de
+dialogue d'Automator**, et c'est la seule qui s'affiche à coup sûr. Un
+`display alert` par osascript demanderait à l'applet l'autorisation de piloter
+System Events, qu'il n'a pas : il échoue en silence, sans rien dessiner et sans
+rien signaler. Essayé, et abandonné pour cette raison. Symétriquement, sortir
+avec un code non nul quand tout va bien ferait afficher à Automator une boîte au
+message vide.
+
+**En cas de problème au lancement, tout est dans
+`~/Library/Logs/WhisperToolkit.log`** — la sortie complète de Python et de
+Streamlit, réécrite à chaque lancement. Le dialogue n'en montre que les trois
+dernières lignes.
 
 Le bundle est à reconstruire après chaque mise à jour de Python par Homebrew :
 le binaire copié pointe vers la version exacte du framework, qu'un `brew

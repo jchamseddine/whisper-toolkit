@@ -141,8 +141,8 @@ def start_streamlit() -> subprocess.Popen:
         "minimal",
     ]
     # Les flux restent hérités : lancée par Automator, l'app n'a pas de terminal,
-    # et c'est la sortie d'erreur du script qui remonte dans la boîte de dialogue.
-    # Rediriger vers un tube rendrait les erreurs de Streamlit invisibles.
+    # et ses sorties sont dirigées vers ~/Library/Logs/WhisperToolkit.log, seule
+    # trace en cas de problème. Rediriger vers un tube les rendrait invisibles.
     return subprocess.Popen(commande, cwd=PROJECT_ROOT, start_new_session=True)
 
 
