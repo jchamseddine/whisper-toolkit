@@ -66,6 +66,8 @@ whisper-toolkit/
 ├── .env               # HF_TOKEN + ANTHROPIC_API_KEY (non versionné)
 ├── venv/              # environnement virtuel (non versionné)
 ├── output/            # transcriptions produites (non versionné)
+├── assets/            # icône de l'app Automator (.icns + PNG source)
+├── scripts/           # outillage hors pipeline — génération de l'icône
 ├── src/
 │   ├── cli.py         # CLI unifié — point d'entrée
 │   ├── transcribe.py  # transcription simple (mlx-whisper)
