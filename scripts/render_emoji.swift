@@ -1,16 +1,16 @@
-// Rendu d'un emoji en PNG carré à fond transparent.
+// Render an emoji into a square PNG with a transparent background.
 //
-// Pourquoi du Swift ici, alors que le reste du toolkit est en Python : seul
-// AppKit sait composer les glyphes couleur d'Apple Color Emoji. Pillow ne lit
-// pas les planches bitmap `sbix` de cette police.
+// Why Swift here, when the rest of the toolkit is Python: only AppKit knows how
+// to compose Apple Color Emoji's colour glyphs. Pillow does not read that
+// font's `sbix` bitmap sheets.
 //
-// Deux limites de la police à garder en tête :
-//   - sa plus grande planche fait 160 px, donc au-delà c'est de
-//     l'agrandissement — net à taille d'icône réelle, doux en très grand ;
-//   - le glyphe déborde de sa boîte em, d'où `fontScale` < 1, sinon le dessin
-//     est rogné par les bords de la toile.
+// Two limits of the font worth keeping in mind:
+//   - its largest sheet is 160 px, so beyond that it is upscaling — crisp at
+//     real icon size, soft when very large;
+//   - the glyph overflows its em box, hence `fontScale` < 1, otherwise the
+//     drawing is clipped by the canvas edges.
 //
-// usage : swift render_emoji.swift <emoji> <pixels> <sortie.png> [fontScale]
+// usage: swift render_emoji.swift <emoji> <pixels> <output.png> [fontScale]
 
 import AppKit
 
@@ -38,15 +38,15 @@ ctx.cgContext.clear(CGRect(x: 0, y: 0, width: px, height: px))
 
 let side = CGFloat(px)
 let font = NSFont(name: "Apple Color Emoji", size: side * fontScale)!
-let texte = NSAttributedString(string: emoji, attributes: [.font: font])
-let taille = texte.size()
-texte.draw(at: NSPoint(x: (side - taille.width) / 2, y: (side - taille.height) / 2))
+let text = NSAttributedString(string: emoji, attributes: [.font: font])
+let size = text.size()
+text.draw(at: NSPoint(x: (side - size.width) / 2, y: (side - size.height) / 2))
 
 NSGraphicsContext.restoreGraphicsState()
 
 guard let png = rep.representation(using: .png, properties: [:]) else {
-    FileHandle.standardError.write("échec de l'encodage PNG\n".data(using: .utf8)!)
+    FileHandle.standardError.write("PNG encoding failed\n".data(using: .utf8)!)
     exit(1)
 }
 try png.write(to: URL(fileURLWithPath: out))
-print("écrit \(out) (\(px)x\(px))")
+print("wrote \(out) (\(px)x\(px))")

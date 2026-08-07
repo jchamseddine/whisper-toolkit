@@ -1,39 +1,37 @@
 #!/bin/bash
 #
-# Régénère l'icône de l'app Automator « Whisper Toolkit.app » à partir d'un
-# emoji, et l'applique au bundle.
+# Regenerate the icon of the Automator app "Whisper Toolkit.app" from an emoji,
+# and apply it to the bundle.
 #
-# Sans argument : régénère assets/app-icon.icns sans toucher à l'app.
-# Avec --apply  : applique en plus l'icône à l'app installée.
+# With no argument: regenerates assets/app-icon.icns without touching the app.
+# With --apply   : additionally applies the icon to the installed app.
 #
 #   ./scripts/make_app_icon.sh
 #   ./scripts/make_app_icon.sh --apply
 #   EMOJI=🎧 ./scripts/make_app_icon.sh --apply
 #
-# Quatre pièges macOS sont traités ici. Les retirer casse quelque chose qui
-# marche, chacun de façon silencieuse — d'où ce script plutôt qu'une note :
+# Four macOS traps are handled here. Removing them breaks something that works,
+# each of them silently — hence this script rather than a note:
 #
-#   1. Le bundle Automator embarque un `Assets.car` contenant l'icône en
-#      calques du robot, désignée par `CFBundleIconName`. Ce catalogue prime sur
-#      `CFBundleIconFile` : remplacer le .icns sans supprimer cette clé ne change
-#      rien à l'écran, sans le moindre message d'erreur.
-#   2. `codesign` REFUSE de signer un bundle portant un xattr
-#      `com.apple.FinderInfo`. L'app en avait un (résidu de tag Finder). Sans le
-#      retirer, la signature est invalidée sans être remplacée : l'app se
-#      retrouve cassée.
-#   3. L'app est signée ad-hoc : toute retouche de `Contents/` invalide le sceau,
-#      il faut resigner (`--sign -`).
-#   4. Le stub Automator pose `LSUIElement`, qui prive l'app de vignette Dock
-#      pendant son exécution. On retire la clé pour qu'elle se comporte en app
-#      normale.
+#   1. The Automator bundle ships an `Assets.car` holding the robot icon in
+#      layers, designated by `CFBundleIconName`. That catalogue takes priority
+#      over `CFBundleIconFile`: replacing the .icns without deleting that key
+#      changes nothing on screen, without the slightest error message.
+#   2. `codesign` REFUSES to sign a bundle carrying a `com.apple.FinderInfo`
+#      xattr. The app had one (a leftover Finder tag). Without removing it, the
+#      signature is invalidated without being replaced: the app ends up broken.
+#   3. The app is ad-hoc signed: any edit to `Contents/` breaks the seal, and it
+#      has to be re-signed (`--sign -`).
+#   4. The Automator stub sets `LSUIElement`, which deprives the app of a Dock
+#      tile while it runs. We remove the key so it behaves as a normal app.
 #
 set -euo pipefail
 
 EMOJI="${EMOJI:-🎙️}"
 APP="${APP:-/Applications/Whisper Toolkit.app}"
 
-RACINE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ASSETS="$RACINE/assets"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ASSETS="$ROOT/assets"
 ICNS="$ASSETS/app-icon.icns"
 PNG="$ASSETS/app-icon-1024.png"
 
@@ -41,22 +39,22 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
 python_bin() {
-    # Pillow vit dans le venv du projet, pas dans le python système.
-    if [ -x "$RACINE/venv/bin/python" ]; then
-        echo "$RACINE/venv/bin/python"
+    # Pillow lives in the project venv, not in the system python.
+    if [ -x "$ROOT/venv/bin/python" ]; then
+        echo "$ROOT/venv/bin/python"
     else
         echo "python3"
     fi
 }
 
-echo "== rendu de $EMOJI =="
+echo "== rendering $EMOJI =="
 mkdir -p "$ASSETS"
-# Toile large + police à 62 % : le glyphe déborde de sa boîte em, dessiner à
-# 100 % le ferait rogner sur les bords. compose_icon.py recadre ensuite.
-swift "$RACINE/scripts/render_emoji.swift" "$EMOJI" 2048 "$TMP/rendu.png" 0.62
-"$(python_bin)" "$RACINE/scripts/compose_icon.py" "$TMP/rendu.png" "$PNG"
+# Wide canvas + font at 62%: the glyph overflows its em box, drawing it at 100%
+# would clip it at the edges. compose_icon.py crops afterwards.
+swift "$ROOT/scripts/render_emoji.swift" "$EMOJI" 2048 "$TMP/render.png" 0.62
+"$(python_bin)" "$ROOT/scripts/compose_icon.py" "$TMP/render.png" "$PNG"
 
-echo "== construction du .icns =="
+echo "== building the .icns =="
 ICONSET="$TMP/icon.iconset"
 mkdir -p "$ICONSET"
 "$(python_bin)" - "$PNG" "$ICONSET" <<'PY'
@@ -64,40 +62,40 @@ import sys
 from PIL import Image
 
 src = Image.open(sys.argv[1]).convert("RGBA")
-dossier = sys.argv[2]
+folder = sys.argv[2]
 for base in (16, 32, 128, 256, 512):
-    for suffixe, px in (("", base), ("@2x", base * 2)):
-        src.resize((px, px), Image.LANCZOS).save(f"{dossier}/icon_{base}x{base}{suffixe}.png")
+    for suffix, px in (("", base), ("@2x", base * 2)):
+        src.resize((px, px), Image.LANCZOS).save(f"{folder}/icon_{base}x{base}{suffix}.png")
 PY
 iconutil -c icns "$ICONSET" -o "$ICNS"
-echo "écrit $ICNS"
+echo "wrote $ICNS"
 
 if [ "${1:-}" != "--apply" ]; then
-    echo "(icône non appliquée — relancer avec --apply)"
+    echo "(icon not applied — run again with --apply)"
     exit 0
 fi
 
 if [ ! -d "$APP" ]; then
-    echo "app introuvable : $APP" >&2
+    echo "app not found: $APP" >&2
     exit 1
 fi
 
-echo "== application à $APP =="
+echo "== applying to $APP =="
 cp "$ICNS" "$APP/Contents/Resources/ApplicationStub.icns"
 
-# Piège 1 : sans cette suppression, Assets.car continue de fournir l'icône.
+# Trap 1: without this deletion, Assets.car keeps supplying the icon.
 /usr/libexec/PlistBuddy -c "Delete :CFBundleIconName" "$APP/Contents/Info.plist" 2>/dev/null || true
-# Piège 4 : rend la vignette Dock visible pendant l'exécution.
+# Trap 4: makes the Dock tile visible while the app runs.
 /usr/libexec/PlistBuddy -c "Delete :LSUIElement" "$APP/Contents/Info.plist" 2>/dev/null || true
-# Piège 2 : à faire avant de signer, sinon codesign refuse et laisse l'app cassée.
+# Trap 2: do this before signing, otherwise codesign refuses and leaves the app broken.
 xattr -d com.apple.FinderInfo "$APP" 2>/dev/null || true
-# Piège 3 : resceller le bundle ad-hoc.
+# Trap 3: re-seal the ad-hoc bundle.
 codesign --force --sign - "$APP"
-codesign --verify --deep --strict "$APP" && echo "signature : valide"
+codesign --verify --deep --strict "$APP" && echo "signature: valid"
 
 LSREG=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 "$LSREG" -f "$APP"
 touch "$APP"
 killall Dock 2>/dev/null || true
 killall Finder 2>/dev/null || true
-echo "icône appliquée ; Finder et Dock redémarrés"
+echo "icon applied; Finder and Dock restarted"
