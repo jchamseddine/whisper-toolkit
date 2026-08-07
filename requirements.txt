@@ -18,3 +18,8 @@ anthropic
 # Interface web (app.py). Le CLI n'en dépend pas : `python src/cli.py` marche
 # sans ce paquet.
 streamlit
+
+# Fenêtre native pour `launch_desktop.py`, qui affiche l'interface Streamlit
+# sans passer par un navigateur. Ni le CLI ni `streamlit run app.py` n'en
+# dépendent. Sur macOS, tire PyObjC (WebKit) avec lui.
+pywebview

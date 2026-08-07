@@ -53,6 +53,54 @@ pas : la sous-commande `summarize` seule (le résumé s'y coche à la volée),
 > streamlit run app.py --server.address localhost
 > ```
 
+### Fenêtre native, sans navigateur
+
+`launch_desktop.py` sert la même interface dans une fenêtre macOS (pywebview)
+plutôt que dans un onglet. C'est ce que lance l'app Automator.
+
+```bash
+source venv/bin/activate
+python launch_desktop.py
+```
+
+Il démarre Streamlit en sous-processus, attend que le serveur réponde (15 s
+maximum), puis ouvre la fenêtre. À la fermeture de celle-ci, le serveur est
+arrêté avec toute sa descendance — `lsof -i :8501` doit être vide juste après.
+Si le serveur ne répond pas dans le délai, aucune fenêtre n'est ouverte : le
+script écrit l'erreur sur sa sortie d'erreur et s'arrête, ce qui fait remonter
+le message dans la boîte de dialogue d'Automator.
+
+Trois points méritent d'être connus avant d'y toucher :
+
+- **`--server.headless true` n'est pas cosmétique.** Sans lui, Streamlit ouvre
+  son propre onglet de navigateur au démarrage : la fenêtre native s'afficherait
+  *en plus* du navigateur.
+- **Le port 8501 est vérifié avant le lancement.** Un serveur déjà en place
+  répondrait au sondage, et la fenêtre s'ouvrirait sur cette instance étrangère
+  pendant que notre sous-processus meurt faute de port.
+- **Streamlit tourne dans sa propre session de processus.** Tuer le seul parent
+  laisserait ses enfants tenir le port ; c'est le groupe entier qui est terminé.
+
+#### L'app Automator
+
+`Whisper Toolkit.app` n'est pas versionnée ici — c'est un applet Automator qui
+vit dans `/Applications`. Pour la recréer : Automator › Application › action
+*Exécuter un script Shell*, shell `/bin/zsh`, avec exactement ce contenu :
+
+```bash
+cd ~/Code/whisper-toolkit
+source venv/bin/activate
+python launch_desktop.py
+```
+
+Son icône se régénère avec `./scripts/make_app_icon.sh --apply` (voir les
+pièges macOS documentés en tête du script). Deux détails valent d'être notés si
+tu modifies l'applet à la main plutôt que par Automator : le bundle est signé
+ad-hoc, donc toute retouche de `Contents/` impose de resigner
+(`codesign --force --sign -`) ; et `Contents/document.wflow` est signé comme
+objet à part, dont les xattrs `com.apple.cs.*` doivent être retirés avant de
+resigner, sans quoi la vérification échoue sur ce sous-composant.
+
 ### Options
 
 | Option | `transcribe` | `batch` | `youtube` | Effet |
@@ -121,7 +169,8 @@ pas un `entry_point` posé par-dessus la structure actuelle.
 - **YouTube** : transcription directe depuis une URL via [`yt-dlp`](https://github.com/yt-dlp/yt-dlp)
 - **Résumé automatique** de la transcription via l'API Claude
 - Le tout dans un **CLI unifié** (`argparse`), doublé d'une **interface web**
-  (Streamlit) qui appelle exactement le même code
+  (Streamlit) qui appelle exactement le même code — affichable dans un
+  navigateur ou dans une **fenêtre native** (`launch_desktop.py`)
 
 ## Structure
 
@@ -130,6 +179,7 @@ whisper-toolkit/
 ├── CLAUDE.md          # guidelines de dev + contexte projet
 ├── README.md
 ├── app.py             # interface web Streamlit (présentation seule)
+├── launch_desktop.py  # même interface, dans une fenêtre native (pywebview)
 ├── requirements.txt
 ├── .gitignore
 ├── .env               # HF_TOKEN pour la diarisation (non versionné)
@@ -137,6 +187,8 @@ whisper-toolkit/
 ├── venv/              # environnement virtuel (non versionné)
 ├── test-audio/        # échantillons de test (ignoré, sauf la fixture synthétique)
 ├── output/            # transcriptions produites (non versionné)
+├── assets/            # icône de l'app Automator (.icns + PNG source)
+├── scripts/           # outillage hors pipeline — génération de l'icône
 ├── src/
 │   ├── cli.py         # CLI unifié — point d'entrée, orchestration seule
 │   ├── transcribe.py  # transcription simple (mlx-whisper)
