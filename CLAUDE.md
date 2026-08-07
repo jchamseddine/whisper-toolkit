@@ -1,168 +1,165 @@
 # CLAUDE.md
 
-Guidelines de comportement pour tout développement futur sur ce repo.
+Behavioural guidelines for all future development on this repo.
 
-## Principes de travail
+## Working principles
 
 ### Think Before Coding
-Réfléchir avant d'écrire du code. Comprendre le problème, lire le code existant,
-identifier les fichiers concernés — puis coder. Pas de code jetable, pas de
-prototype qu'on jette ensuite : ce qui est écrit est destiné à rester.
+Think before writing code. Understand the problem, read the existing code,
+identify the files involved — then code. No throwaway code, no prototype meant
+to be discarded afterwards: what gets written is meant to stay.
 
 ### Simplicity First
-Privilégier la solution la plus simple qui marche. Pas d'abstraction anticipée,
-pas de couche de configuration pour un cas unique, pas de design pattern là où
-une fonction suffit. Une dépendance de plus doit être justifiée.
+Prefer the simplest solution that works. No anticipatory abstraction, no
+configuration layer for a single case, no design pattern where a function will
+do. One more dependency has to be justified.
 
 ### Surgical Changes
-Modifications ciblées et minimales. Pas de refactor non demandé, pas de
-reformatage de fichiers qu'on ne touche pas, pas de renommage opportuniste.
-Si un refactor semble nécessaire, le proposer — ne pas le faire au passage.
+Targeted, minimal changes. No unrequested refactor, no reformatting of files you
+are not touching, no opportunistic renaming. If a refactor seems necessary,
+propose it — do not do it in passing.
 
 ### Goal-Driven Execution
-Rester focus sur l'objectif de la tâche en cours. Ne pas déborder sur les étapes
-suivantes du projet. Si une idée sort du périmètre, la noter et continuer.
+Stay focused on the goal of the task at hand. Do not spill over into the
+project's later steps. If an idea falls outside the scope, note it and carry on.
 
-## Contexte du projet
+## Project context
 
-`whisper-toolkit` — un CLI Python de transcription audio **locale**, basé sur
-Whisper. Projet personnel (side project).
+`whisper-toolkit` — a Python CLI for **local** audio transcription, built on
+Whisper. A personal side project.
 
-Fonctionnalités, toutes implémentées et exécutées pour de vrai :
-- Transcription locale via **mlx-whisper** (optimisé Apple Silicon)
-- Diarisation (identification des locuteurs) via **whisperx**
-- Traitement **batch** d'un dossier entier, avec reprise
-- Transcription depuis une **URL YouTube** via **yt-dlp**
-- **Résumé automatique** via l'API Claude
-- Le tout derrière un **CLI unifié** `argparse` (`python src/cli.py`), doublé
-  d'une **interface web** Streamlit (`streamlit run app.py`) qui appelle le même
-  code — les deux coexistent
+Features, all implemented and actually run for real:
+- Local transcription via **mlx-whisper** (optimised for Apple Silicon)
+- Diarization (speaker identification) via **whisperx**
+- **Batch** processing of a whole folder, with resume
+- Transcription from a **YouTube URL** via **yt-dlp**
+- **Automatic summarization** via the Claude API
+- All of it behind a **unified `argparse` CLI** (`python src/cli.py`), doubled by
+  a Streamlit **web interface** (`streamlit run app.py`) that calls the same
+  code — the two coexist
 
-**La surveillance de dossier est volontairement écartée.** Le traitement par lot
-couvre l'usage réel ; le mode watchdog ne sera ajouté que si le besoin se
-confirme.
+**Folder watching is deliberately set aside.** Batch processing covers the real
+usage; the watchdog mode will only be added if the need is confirmed.
 
-## Stack technique
+## Technical stack
 
-| Usage | Outil |
+| Purpose | Tool |
 |---|---|
-| Langage | Python 3 (venv local, dossier `venv/`) |
-| Transcription | `mlx-whisper` (Apple Silicon uniquement) |
-| Diarisation | `whisperx` |
-| Téléchargement audio | `yt-dlp` |
-| Résumé | API Claude (`anthropic`) |
+| Language | Python 3 (local venv, `venv/` folder) |
+| Transcription | `mlx-whisper` (Apple Silicon only) |
+| Diarization | `whisperx` |
+| Audio download | `yt-dlp` |
+| Summarization | Claude API (`anthropic`) |
 | CLI | `argparse` (stdlib) |
-| Interface web | `streamlit` |
+| Web interface | `streamlit` |
 
-## Structure de dossiers
+## Folder structure
 
 ```
 whisper-toolkit/
-├── CLAUDE.md          # ce fichier
+├── CLAUDE.md          # this file
 ├── README.md
-├── app.py             # interface web Streamlit (présentation seule)
+├── app.py             # Streamlit web interface (presentation only)
 ├── requirements.txt
 ├── .gitignore
-├── .env               # HF_TOKEN + ANTHROPIC_API_KEY (non versionné)
-├── venv/              # environnement virtuel (non versionné)
-├── output/            # transcriptions produites (non versionné)
-├── assets/            # icône de l'app Automator (.icns + PNG source)
-├── scripts/           # outillage hors pipeline — icône, bundle de lancement
+├── .env               # HF_TOKEN + ANTHROPIC_API_KEY (not versioned)
+├── venv/              # virtual environment (not versioned)
+├── output/            # produced transcripts (not versioned)
+├── assets/            # Automator app icon (.icns + source PNG)
+├── scripts/           # tooling outside the pipeline — icon, launcher bundle
 ├── src/
-│   ├── cli.py         # CLI unifié — point d'entrée
-│   ├── transcribe.py  # transcription simple (mlx-whisper)
-│   ├── diarize.py     # transcription + locuteurs (whisperx)
-│   ├── batch.py       # traitement d'un dossier entier
-│   ├── youtube.py     # transcription depuis une URL (yt-dlp)
-│   ├── summarize.py   # résumé d'une transcription (API Claude)
-│   └── ffmpeg_path.py # localisation de ffmpeg, hors PATH si besoin
-└── tests/             # tests (vide pour l'instant)
+│   ├── cli.py         # unified CLI — entry point
+│   ├── transcribe.py  # plain transcription (mlx-whisper)
+│   ├── diarize.py     # transcription + speakers (whisperx)
+│   ├── batch.py       # processing a whole folder
+│   ├── youtube.py     # transcription from a URL (yt-dlp)
+│   ├── summarize.py   # summarizing a transcript (Claude API)
+│   └── ffmpeg_path.py # locating ffmpeg, outside PATH if need be
+└── tests/             # tests (empty for now)
 ```
 
-## Contraintes de plateforme
+## Platform constraints
 
-`mlx-whisper` ne s'installe **que sur macOS Apple Silicon**. Le développement
-peut se faire sur une autre machine, mais l'import de `mlx_whisper` doit rester
-optionnel / paresseux (lazy import) pour que le reste du CLI fonctionne
-ailleurs. Voir le README pour l'état d'installation de la machine courante.
+`mlx-whisper` installs **only on macOS Apple Silicon**. Development can happen
+on another machine, but the `mlx_whisper` import must stay optional / lazy so
+the rest of the CLI works elsewhere. See the README for the current machine's
+installation state.
 
-## État actuel
+## Current state
 
-**Les 8 étapes du plan initial sont terminées**, chacune validée par des
-exécutions réelles — mesures et cas limites dans le README, section
-*Testing Status*. Il n'y a plus d'étape « à ne pas anticiper » : le prochain
-travail est du durcissement, des tests automatisés, ou une fonctionnalité
-nouvelle à définir.
+**The 8 steps of the initial plan are finished**, each validated by real runs —
+measurements and edge cases in the README, *Testing Status* section. There is no
+longer a "do not anticipate" step: the next work is hardening, automated tests,
+or a new feature to be defined.
 
-### Deux couches, à ne pas mélanger
+### Two layers, not to be mixed
 
-**Couche pipeline** — le travail audio réel. Ces deux modules sont indépendants :
-ni import croisé, ni état partagé, ni backend commun. Ce n'est pas un accident,
-chacun est le meilleur outil pour son usage.
+**Pipeline layer** — the real audio work. These two modules are independent: no
+cross-imports, no shared state, no common backend. That is not an accident; each
+is the best tool for its job.
 
-| Module | Rôle | Backend |
+| Module | Role | Backend |
 |---|---|---|
-| `transcribe.py` | audio → texte | `mlx-whisper`, GPU Metal |
-| `diarize.py` | audio → segments `{start, end, text, speaker}` | `whisperx` → faster-whisper, **CPU uniquement** |
+| `transcribe.py` | audio → text | `mlx-whisper`, Metal GPU |
+| `diarize.py` | audio → `{start, end, text, speaker}` segments | `whisperx` → faster-whisper, **CPU only** |
 
-**Couche orchestration** — aucune logique audio, uniquement de la délégation.
+**Orchestration layer** — no audio logic, delegation only.
 
-| Module | Rôle |
+| Module | Role |
 |---|---|
-| `batch.py` | liste un dossier, délègue fichier par fichier, reprise par défaut |
-| `youtube.py` | télécharge l'audio (yt-dlp), puis délègue |
-| `summarize.py` | texte → résumé via l'API Claude — seul module qui sorte de la machine, et seul qui coûte de l'argent |
-| `cli.py` | point d'entrée : une commande, quatre sous-commandes |
-| `app.py` | second point d'entrée : interface web Streamlit, quatre onglets. Coexiste avec le CLI, ne le remplace pas. *Dictée rapide* est le seul à n'écrire ni audio ni texte par défaut |
+| `batch.py` | lists a folder, delegates file by file, resumes by default |
+| `youtube.py` | downloads the audio (yt-dlp), then delegates |
+| `summarize.py` | text → summary via the Claude API — the only module that leaves the machine, and the only one that costs money |
+| `cli.py` | entry point: one command, four subcommands |
+| `app.py` | second entry point: Streamlit web interface, four tabs. Coexists with the CLI, does not replace it. *Quick dictation* is the only one that writes neither audio nor text by default |
 
-### Comment ça s'assemble
+### How it fits together
 
 ```
-cli.py transcribe FICHIER ──> transcribe_file() | diarize_file()
-cli.py batch DOSSIER      ──> process_folder()      ──> idem, fichier par fichier
-cli.py youtube URL        ──> transcribe_youtube()  ──> idem, après téléchargement
-cli.py summarize F.txt    ──> summarize_text()
-                                   ▲
-                 --summarize enchaîne cette étape sur la sortie des trois autres
+cli.py transcribe FILE   ──> transcribe_file() | diarize_file()
+cli.py batch FOLDER      ──> process_folder()      ──> same, file by file
+cli.py youtube URL       ──> transcribe_youtube()  ──> same, after downloading
+cli.py summarize F.txt   ──> summarize_text()
+                                  ▲
+                --summarize chains this step onto the output of the other three
 ```
 
-Les règles qui tiennent l'ensemble — les enfreindre casse des choses qui
-marchent aujourd'hui :
+The rules that hold the whole together — breaking them breaks things that work
+today:
 
-- **`cli.py` et `app.py` ne contiennent aucune logique métier.** Ils appellent,
-  ils affichent. Une fonctionnalité nouvelle va dans le module concerné, jamais
-  dans un point d'entrée — sinon elle n'existe que d'un côté.
-- **Les conventions de nommage des sorties appartiennent aux modules qui
-  écrivent.** `transcript_path()`, `diarized_transcript_path()` et
-  `summary_path()` en sont la source unique — ne jamais reconstruire un chemin
-  de sortie ailleurs, c'est ce qui garde la reprise de `batch.py` cohérente.
-- **Les imports entre modules de `src/` sont plats** (`from transcribe import …`)
-  parce que ces fichiers s'exécutent comme des scripts. Un `python -m src.cli`
-  ne fonctionnerait pas sans imports relatifs.
-- **Les dépendances lourdes s'importent paresseusement** : `mlx_whisper`,
-  `whisperx` et `anthropic` dans les fonctions qui les utilisent, les modules
-  frères dans les handlers de `cli.py`. C'est ce qui garde `--help` à 0,03 s et
-  le reste du toolkit utilisable hors Apple Silicon.
-- **Chaque module garde son propre `main()`** et reste lançable seul
-  (`python src/diarize.py fichier.wav`). C'est là que vivent les réglages rares
-  — `--model`, `--diarization-model` — que le CLI unifié n'expose pas
-  volontairement.
-- **La langue n'est jamais forcée par défaut.** Forcer une langue qui n'est pas
-  celle de l'audio ne produit pas une erreur mais une traduction inventée,
-  fluide et indétectable dans la sortie.
-- **Ne jamais supposer que ffmpeg est dans le `PATH`.** Les trois backends
-  l'appellent en sous-processus, et un lancement hors shell interactif (app
-  Automator, Finder, launchd) n'hérite pas de `/opt/homebrew/bin`. Passer par
-  `ffmpeg_path.py` : chemin explicite quand l'appelant l'accepte — yt-dlp —,
-  `ensure_on_path()` sinon.
+- **`cli.py` and `app.py` contain no business logic.** They call, they display.
+  A new feature goes into the module concerned, never into an entry point —
+  otherwise it only exists on one side.
+- **Output naming conventions belong to the modules that write.**
+  `transcript_path()`, `diarized_transcript_path()` and `summary_path()` are
+  their single source — never rebuild an output path elsewhere, that is what
+  keeps `batch.py`'s resume logic coherent.
+- **Imports between `src/` modules are flat** (`from transcribe import …`)
+  because these files run as scripts. A `python -m src.cli` would not work
+  without relative imports.
+- **Heavy dependencies are imported lazily**: `mlx_whisper`, `whisperx` and
+  `anthropic` inside the functions that use them, sibling modules inside
+  `cli.py`'s handlers. That is what keeps `--help` at 0.03 s and the rest of the
+  toolkit usable off Apple Silicon.
+- **Every module keeps its own `main()`** and stays runnable on its own
+  (`python src/diarize.py file.wav`). That is where the rare settings live —
+  `--model`, `--diarization-model` — which the unified CLI deliberately does not
+  expose.
+- **The language is never forced by default.** Forcing a language that is not
+  the audio's does not raise an error, it produces an invented translation,
+  fluent and undetectable in the output.
+- **Never assume ffmpeg is on `PATH`.** The three backends call it as a
+  subprocess, and a launch outside an interactive shell (Automator app, Finder,
+  launchd) does not inherit `/opt/homebrew/bin`. Go through `ffmpeg_path.py`: an
+  explicit path when the caller accepts one — yt-dlp — `ensure_on_path()`
+  otherwise.
 
-### Ce qui n'est pas fait
+### What is not done
 
-- Surveillance de dossier — volontairement écartée (voir plus haut).
-- `tests/` est vide : aucun test automatisé, tout a été vérifié à la main.
-- Le toolkit n'est pas installable (`pip install -e .`) ; la raison est
-  documentée dans le README, section *Usage*.
-- Les réserves connues (diarisation testée sur voix de synthèse seulement,
-  résumé jamais mesuré sur une vraie transcription longue, etc.) sont listées
-  dans le README sous *Reste à valider* — à lire avant de promettre quoi que ce
-  soit sur ces points.
+- Folder watching — deliberately set aside (see above).
+- `tests/` is empty: no automated tests, everything was checked by hand.
+- The toolkit is not installable (`pip install -e .`); the reason is documented
+  in the README, *Usage* section.
+- Known caveats (diarization tested on synthetic voices only, summarization
+  never measured on a real long transcript, etc.) are listed in the README under
+  *Still to validate* — read them before promising anything on those points.
