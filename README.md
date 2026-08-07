@@ -70,7 +70,7 @@ Si le serveur ne répond pas dans le délai, aucune fenêtre n'est ouverte : le
 script écrit l'erreur sur sa sortie d'erreur et s'arrête, ce qui fait remonter
 le message dans la boîte de dialogue d'Automator.
 
-Trois points méritent d'être connus avant d'y toucher :
+Quatre points méritent d'être connus avant d'y toucher :
 
 - **`--server.headless true` n'est pas cosmétique.** Sans lui, Streamlit ouvre
   son propre onglet de navigateur au démarrage : la fenêtre native s'afficherait
@@ -80,6 +80,46 @@ Trois points méritent d'être connus avant d'y toucher :
   pendant que notre sous-processus meurt faute de port.
 - **Streamlit tourne dans sa propre session de processus.** Tuer le seul parent
   laisserait ses enfants tenir le port ; c'est le groupe entier qui est terminé.
+- **L'identité de l'app est corrigée à la main**, faute de bundle `.app` — voir
+  juste en dessous.
+
+#### Icône et nom : ce qui est corrigé, ce qui ne l'est pas
+
+La fenêtre est ouverte par le processus Python lui-même, pas par un bundle
+`.app`. macOS lui prête donc l'identité de l'interpréteur : la fusée et le nom
+« Python ». `set_dock_identity()` en rattrape deux tiers via PyObjC — déjà
+installé, puisque pywebview en dépend sur macOS :
+
+| Ce qu'on voit | Avant | Après |
+|---|---|---|
+| Icône du Dock | fusée Python | **micro** ✅ |
+| Nom du menu, à côté du logo Apple | Python | **Whisper Toolkit** ✅ |
+| Infobulle du Dock, au survol | Python | Python ❌ |
+
+L'infobulle résiste parce qu'elle ne vient pas du processus : LaunchServices la
+lit dans le bundle sur le disque, `org.python.python`. Écrire `CFBundleName` à
+l'exécution arrive trop tard pour elle, et `NSProcessInfo.setProcessName_()` n'y
+change rien non plus — les deux ont été essayés et vérifiés à l'écran.
+
+**Deux icônes apparaissent dans le Dock**, et c'est la même cause. L'applet
+Automator reste en vie tant que son script tourne : il occupe une tuile, le
+processus Python en occupe une seconde. C'est antérieur à la correction
+ci-dessus — on voyait « micro + fusée », on voit maintenant « micro + micro »,
+ce qui rend le doublon plus visible mais ne l'a pas créé. Vérifié en relançant
+l'app avec et sans le correctif.
+
+Un demi-remède existe, si le doublon gêne plus que l'infobulle : faire lancer le
+script en arrière-plan par l'applet (`python launch_desktop.py &`), qui rend
+alors la main et quitte aussitôt. Il ne resterait qu'une tuile — micro, mais
+nommée « Python » — au prix de la boîte de dialogue d'Automator, qui affiche
+aujourd'hui les erreurs de démarrage. Non fait.
+
+**Pour aller jusqu'au bout, il faudrait un vrai bundle** — `py2app`, avec son
+propre `Info.plist` (`CFBundleName`, `CFBundleIconFile`, `CFBundleIdentifier`).
+Un seul processus, donc une seule tuile, et le bon nom partout. Le prix : une
+dépendance de build, une étape de packaging à refaire à chaque modification du
+code, et un bundle de plusieurs centaines de Mo une fois `mlx-whisper` et
+`whisperx` embarqués. Non fait, à arbitrer.
 
 #### L'app Automator
 
