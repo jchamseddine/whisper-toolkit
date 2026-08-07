@@ -36,11 +36,21 @@ def transcribe_file(
     return result["text"]
 
 
+def transcript_path(audio_path: str, output_dir: str = "output") -> str:
+    """Chemin de sortie attendu pour `audio_path`, sans rien écrire.
+
+    Source unique de la convention de nommage : `batch.py` s'en sert pour
+    savoir si un fichier est déjà traité, et doit rester d'accord avec
+    `save_transcript()` même si la convention change.
+    """
+    stem = os.path.splitext(os.path.basename(audio_path))[0]
+    return os.path.join(output_dir, f"{stem}.txt")
+
+
 def save_transcript(text: str, audio_path: str, output_dir: str = "output") -> str:
     """Écrit la transcription dans output_dir et retourne le chemin du fichier."""
     os.makedirs(output_dir, exist_ok=True)
-    stem = os.path.splitext(os.path.basename(audio_path))[0]
-    output_path = os.path.join(output_dir, f"{stem}.txt")
+    output_path = transcript_path(audio_path, output_dir)
 
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(text)

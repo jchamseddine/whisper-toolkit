@@ -72,9 +72,10 @@ ci-dessus :
 ```
 dossier ──> list_audio_files()          (filtre sur SUPPORTED_EXTENSIONS)
         ──> pour chaque fichier :
+              sortie déjà présente ? ──> sauté           (sauf --force)
               transcribe_file() + save_transcript()            (défaut)
               diarize_file()    + save_diarized_transcript()   (--diarize)
-        ──> {"success": [...], "failed": [(chemin, erreur), ...]}
+        ──> {"success": [...], "failed": [(chemin, erreur), ...], "skipped": [...]}
 ```
 
 Il importe `SUPPORTED_EXTENSIONS` depuis `transcribe.py` au lieu de la
@@ -84,6 +85,35 @@ redéfinir : ajouter un format là-bas le rend disponible ici sans rien toucher.
 `try/except` : un fichier illisible n'interrompt pas le lot. Le résumé final
 liste les échecs avec leur raison, et le processus sort en code 1 si au moins un
 fichier a échoué — pratique pour enchaîner dans un script.
+
+**Reprise : c'est le comportement par défaut.** Avant de traiter un fichier,
+`batch.py` regarde si sa sortie existe déjà dans `output/` ; si oui, il le saute.
+Relancer un lot interrompu ne refait donc que ce qui manque. `--force` retraite
+tout, sortie existante ou non.
+
+```bash
+python src/batch.py mon-dossier/           # reprise : ne refait que ce qui manque
+python src/batch.py mon-dossier/ --force   # retraite tout
+```
+
+Trois points à connaître :
+
+- **Les fichiers sautés sont comptés à part**, dans `"skipped"`, et listés nommément
+  dans le résumé. Ce n'est jamais un skip silencieux : un fichier sauté n'est ni
+  un succès ni un échec, et ne change pas le code de sortie.
+- **La reprise est par mode.** La sortie attendue est `output/{nom}.txt` en
+  transcription et `output/{nom}_diarized.txt` en diarisation : avoir déjà
+  transcrit un fichier ne fait pas sauter sa diarisation, et réciproquement.
+- **Seule la présence du fichier compte, pas son contenu.** Une sortie tronquée
+  par une interruption au milieu d'une écriture sera considérée comme faite ;
+  c'est `--force` (ou la suppression du `.txt`) qui la refait. En contrepartie,
+  un fichier en échec ne produit aucune sortie, donc il est bien retenté au
+  lancement suivant.
+
+Les chemins de sortie viennent de `transcript_path()` et
+`diarized_transcript_path()`, exportés par les modules qui les écrivent.
+`batch.py` ne réimplémente pas la convention de nommage : changer le suffixe
+d'un côté ne peut pas désynchroniser la détection de reprise de l'autre.
 
 **Pas de surveillance continue de dossier.** Un simple traitement de lot couvre
 l'usage réel (« transcrire tous les cours de la semaine d'un coup »). Le mode
@@ -454,6 +484,38 @@ dossier sans aucun fichier audio → message et `exit 0`, sans erreur.
 > réduit à sa première ligne pour l'affichage. L'erreur complète reste
 > accessible dans le dict retourné par `process_folder()`.
 
+### Test 6 — reprise de `batch.py` (2026-08-07)
+
+Exécuté sur `test-audio/`, qui contient **6 fichiers tous traitables**
+(`.opus`, `.ogg` ×2, `.wav` ×3), après avoir mis `output/` de côté pour partir
+d'un état vierge. Trois lancements successifs, en mode transcription :
+
+| # | Commande | Traités | Sautés | Sortie |
+|---|---|---|---|---|
+| 1 | `batch.py test-audio/` | 6 | 0 | 6 `.txt` créés, 8,7 s |
+| 2 | `batch.py test-audio/` | 0 | **6** | aucune réécriture, `exit 0` |
+| 3 | `batch.py test-audio/ --force` | 6 | 0 | 6 `.txt` réécrits |
+
+Le run 3 a été validé sur les **mtimes** et non sur le seul affichage : les six
+horodatages passent de `12:03:4x` à `12:04:0x`, donc les fichiers ont réellement
+été réécrits, pas simplement re-annoncés.
+
+Cas complémentaires vérifiés :
+
+| Scénario | Attendu | Obtenu |
+|---|---|---|
+| Suppression d'**une** sortie sur 6, relance | 1 traité, 5 sautés | ✅ |
+| `--diarize` alors que les 6 `.txt` existent | rien de sauté | ✅ 2/2 diarisés |
+| `--diarize` relancé après coup | 2 sautés | ✅ |
+| Transcription relancée après diarisation | 2 sautés | ✅ |
+
+> **Le test qui compte vraiment est celui du croisement des modes.** Une
+> implémentation naïve qui chercherait « une sortie quelconque pour ce fichier »
+> aurait sauté la diarisation de fichiers déjà transcrits — et le lot aurait
+> paru réussir en ne produisant rien. C'est pourquoi la sortie attendue est
+> demandée à `transcript_path()` / `diarized_transcript_path()` selon le mode,
+> plutôt que reconstruite dans `batch.py`.
+
 ### Environnement de test (vérifié le 2026-08-06)
 
 Mac M5 (`Darwin arm64`) — tout est en place :
@@ -503,8 +565,10 @@ Mac M5 (`Darwin arm64`) — tout est en place :
 - `batch.py` sur un vrai lot : testé sur 3 fichiers courts. Le comportement sur
   plusieurs dizaines de fichiers longs — durée totale, mémoire, rechargement du
   modèle à chaque fichier — n'a pas été observé.
-- `batch.py` écrase silencieusement une sortie déjà présente dans `output/` :
-  relancer un lot retraite tout, sans reprise ni saut des fichiers déjà faits.
+- La reprise de `batch.py` se fie à la **présence** du fichier de sortie, jamais
+  à son contenu. Une sortie tronquée par une coupure en pleine écriture serait
+  considérée comme complète et sautée au lancement suivant. Ce cas n'a pas été
+  provoqué en test ; le contournement est `--force`, ou supprimer le `.txt`.
 - Autres langues et autres modèles que les valeurs par défaut.
 - Tests automatisés dans `tests/` : aucun pour l'instant, tout a été vérifié
   à la main.

@@ -165,13 +165,22 @@ def diarize_file(
     ]
 
 
+def diarized_transcript_path(audio_path: str, output_dir: str = "output") -> str:
+    """Chemin de sortie attendu pour `audio_path`, sans rien écrire.
+
+    Pendant de `transcribe.transcript_path()` pour le mode diarisation : c'est
+    ce qui permet à `batch.py` de détecter un fichier déjà traité.
+    """
+    stem = os.path.splitext(os.path.basename(audio_path))[0]
+    return os.path.join(output_dir, f"{stem}_diarized.txt")
+
+
 def save_diarized_transcript(
     segments: list[dict], audio_path: str, output_dir: str = "output"
 ) -> str:
     """Écrit les segments étiquetés par locuteur et retourne le chemin du fichier."""
     os.makedirs(output_dir, exist_ok=True)
-    stem = os.path.splitext(os.path.basename(audio_path))[0]
-    output_path = os.path.join(output_dir, f"{stem}_diarized.txt")
+    output_path = diarized_transcript_path(audio_path, output_dir)
 
     with open(output_path, "w", encoding="utf-8") as f:
         for segment in segments:

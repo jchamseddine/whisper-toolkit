@@ -9,8 +9,13 @@ import argparse
 import os
 import sys
 
-from diarize import diarize_file, save_diarized_transcript
-from transcribe import SUPPORTED_EXTENSIONS, save_transcript, transcribe_file
+from diarize import diarize_file, diarized_transcript_path, save_diarized_transcript
+from transcribe import (
+    SUPPORTED_EXTENSIONS,
+    save_transcript,
+    transcribe_file,
+    transcript_path,
+)
 
 
 def _short_reason(reason: str, limit: int = 160) -> str:
@@ -46,15 +51,21 @@ def process_folder(
     folder_path: str,
     diarize: bool = False,
     num_speakers: int | None = None,
+    force: bool = False,
 ) -> dict:
     """Traite tous les fichiers audio d'un dossier.
 
+    Reprise par défaut : un fichier dont la sortie existe déjà est sauté, ce
+    qui permet de relancer un lot interrompu sans tout refaire. `force=True`
+    retraite tout. La présence du fichier de sortie est le seul critère — son
+    contenu n'est pas inspecté.
+
     Un fichier en échec n'interrompt pas le lot. Retourne
-    `{"success": [chemins], "failed": [(chemin, erreur)]}`.
+    `{"success": [chemins], "failed": [(chemin, erreur)], "skipped": [chemins]}`.
     """
     audio_files = list_audio_files(folder_path)
     total = len(audio_files)
-    summary: dict = {"success": [], "failed": []}
+    summary: dict = {"success": [], "failed": [], "skipped": []}
 
     if not total:
         print(f"Aucun fichier audio dans {folder_path}", file=sys.stderr)
@@ -62,6 +73,18 @@ def process_folder(
 
     for index, audio_path in enumerate(audio_files, start=1):
         print(f"[{index}/{total}] {os.path.basename(audio_path)}", file=sys.stderr)
+
+        # Chemin demandé aux modules qui l'écrivent, pour que la détection de
+        # reprise suive automatiquement tout changement de convention.
+        expected_output = (
+            diarized_transcript_path(audio_path)
+            if diarize
+            else transcript_path(audio_path)
+        )
+        if not force and os.path.isfile(expected_output):
+            summary["skipped"].append(audio_path)
+            print(f"        sauté — déjà traité : {expected_output}", file=sys.stderr)
+            continue
 
         try:
             if diarize:
@@ -80,7 +103,12 @@ def process_folder(
         summary["success"].append(audio_path)
         print(f"        → {output_path}", file=sys.stderr)
 
-    print(f"\n{len(summary['success'])}/{total} fichiers traités", file=sys.stderr)
+    processed = len(summary["success"]) + len(summary["failed"])
+    print(
+        f"\n{len(summary['success'])}/{processed} fichiers traités"
+        f" ({len(summary['skipped'])} sautés sur {total})",
+        file=sys.stderr,
+    )
     return summary
 
 
@@ -100,17 +128,31 @@ def main() -> None:
         default=None,
         help="Nombre exact de locuteurs, si connu (avec --diarize)",
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Retraiter les fichiers dont la sortie existe déjà "
+        "(par défaut : reprise, ces fichiers sont sautés)",
+    )
     args = parser.parse_args()
 
     try:
         summary = process_folder(
-            args.folder_path, diarize=args.diarize, num_speakers=args.num_speakers
+            args.folder_path,
+            diarize=args.diarize,
+            num_speakers=args.num_speakers,
+            force=args.force,
         )
     except NotADirectoryError as error:
         print(f"Erreur : {error}", file=sys.stderr)
         sys.exit(1)
 
     print(f"Succès : {len(summary['success'])}")
+
+    if summary["skipped"]:
+        print(f"Sautés : {len(summary['skipped'])} (déjà traités — --force pour refaire)")
+        for path in summary["skipped"]:
+            print(f"  - {os.path.basename(path)}")
 
     if summary["failed"]:
         print(f"Échecs : {len(summary['failed'])}")
