@@ -34,7 +34,9 @@ Fonctionnalités, toutes implémentées et exécutées pour de vrai :
 - Traitement **batch** d'un dossier entier, avec reprise
 - Transcription depuis une **URL YouTube** via **yt-dlp**
 - **Résumé automatique** via l'API Claude
-- Le tout derrière un **CLI unifié** `argparse` (`python src/cli.py`)
+- Le tout derrière un **CLI unifié** `argparse` (`python src/cli.py`), doublé
+  d'une **interface web** Streamlit (`streamlit run app.py`) qui appelle le même
+  code — les deux coexistent
 
 **La surveillance de dossier est volontairement écartée.** Le traitement par lot
 couvre l'usage réel ; le mode watchdog ne sera ajouté que si le besoin se
@@ -50,6 +52,7 @@ confirme.
 | Téléchargement audio | `yt-dlp` |
 | Résumé | API Claude (`anthropic`) |
 | CLI | `argparse` (stdlib) |
+| Interface web | `streamlit` |
 
 ## Structure de dossiers
 
@@ -57,6 +60,7 @@ confirme.
 whisper-toolkit/
 ├── CLAUDE.md          # ce fichier
 ├── README.md
+├── app.py             # interface web Streamlit (présentation seule)
 ├── requirements.txt
 ├── .gitignore
 ├── .env               # HF_TOKEN + ANTHROPIC_API_KEY (non versionné)
@@ -106,6 +110,7 @@ chacun est le meilleur outil pour son usage.
 | `youtube.py` | télécharge l'audio (yt-dlp), puis délègue |
 | `summarize.py` | texte → résumé via l'API Claude — seul module qui sorte de la machine, et seul qui coûte de l'argent |
 | `cli.py` | point d'entrée : une commande, quatre sous-commandes |
+| `app.py` | second point d'entrée : interface web Streamlit, trois onglets. Coexiste avec le CLI, ne le remplace pas |
 
 ### Comment ça s'assemble
 
@@ -121,8 +126,9 @@ cli.py summarize F.txt    ──> summarize_text()
 Les règles qui tiennent l'ensemble — les enfreindre casse des choses qui
 marchent aujourd'hui :
 
-- **`cli.py` ne contient aucune logique métier.** Il appelle, il affiche. Une
-  fonctionnalité nouvelle va dans le module concerné, jamais ici.
+- **`cli.py` et `app.py` ne contiennent aucune logique métier.** Ils appellent,
+  ils affichent. Une fonctionnalité nouvelle va dans le module concerné, jamais
+  dans un point d'entrée — sinon elle n'existe que d'un côté.
 - **Les conventions de nommage des sorties appartiennent aux modules qui
   écrivent.** `transcript_path()`, `diarized_transcript_path()` et
   `summary_path()` en sont la source unique — ne jamais reconstruire un chemin

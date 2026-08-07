@@ -14,3 +14,7 @@ yt-dlp
 
 # Résumé via l'API Claude (requiert ANTHROPIC_API_KEY dans .env)
 anthropic
+
+# Interface web (app.py). Le CLI n'en dépend pas : `python src/cli.py` marche
+# sans ce paquet.
+streamlit

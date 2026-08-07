@@ -4,7 +4,8 @@ CLI Python de transcription audio **locale**, basé sur Whisper.
 
 > **Statut : en cours de développement.** Transcription locale, diarisation,
 > traitement par lot, transcription depuis une URL YouTube et résumé via l'API
-> Claude sont implémentés et exécutés pour de vrai, derrière un CLI unifié.
+> Claude sont implémentés et exécutés pour de vrai, derrière un CLI unifié —
+> doublé d'une interface web Streamlit qui appelle le même code.
 > Deux réserves : la séparation des locuteurs n'a été testée que sur des voix de
 > synthèse, sans chevauchement de parole, et le résumé n'a été mesuré que sur
 > une transcription écrite à la main, pas sur une vraie sortie Whisper longue.
@@ -26,6 +27,31 @@ python src/cli.py summarize output/cours.txt        # résumer un texte déjà p
 
 Les trois premières écrivent dans `output/`. `python src/cli.py --help`, et
 `python src/cli.py <sous-commande> --help`, listent le reste.
+
+### Interface web
+
+Une interface Streamlit couvre les trois entrées audio, **en plus** du CLI —
+elle ne le remplace pas, et les deux appellent exactement le même code.
+
+```bash
+source venv/bin/activate
+streamlit run app.py           # http://localhost:8501
+```
+
+Trois onglets — *Fichier unique* (glisser-déposer), *Dossier (batch)* et
+*YouTube* — avec les mêmes options qu'en ligne de commande, les mêmes sorties
+dans `output/`, et un bouton de téléchargement du `.txt`. Ce que l'app n'expose
+pas : la sous-commande `summarize` seule (le résumé s'y coche à la volée),
+`--summary-model` et `--summary-style`. Détail dans
+[`app.py` — interface web](#apppy--interface-web-présentation-seule).
+
+> ⚠️ **Streamlit écoute sur toutes les interfaces par défaut**, pas seulement
+> sur `localhost` : lancé tel quel, il affiche une « Network URL » joignable par
+> tout le réseau local. Sur un réseau qui n'est pas le tien :
+>
+> ```bash
+> streamlit run app.py --server.address localhost
+> ```
 
 ### Options
 
@@ -94,7 +120,8 @@ pas un `entry_point` posé par-dessus la structure actuelle.
 - **Surveillance de dossier** : transcription automatique des nouveaux fichiers
 - **YouTube** : transcription directe depuis une URL via [`yt-dlp`](https://github.com/yt-dlp/yt-dlp)
 - **Résumé automatique** de la transcription via l'API Claude
-- Le tout dans un **CLI unifié** (`argparse`)
+- Le tout dans un **CLI unifié** (`argparse`), doublé d'une **interface web**
+  (Streamlit) qui appelle exactement le même code
 
 ## Structure
 
@@ -102,6 +129,7 @@ pas un `entry_point` posé par-dessus la structure actuelle.
 whisper-toolkit/
 ├── CLAUDE.md          # guidelines de dev + contexte projet
 ├── README.md
+├── app.py             # interface web Streamlit (présentation seule)
 ├── requirements.txt
 ├── .gitignore
 ├── .env               # HF_TOKEN pour la diarisation (non versionné)
@@ -217,6 +245,62 @@ lequel on ne peut pas savoir qu'un résumé existe déjà), `batch.report_summar
 (le bilan du lot sort de `main()` pour être appelable des deux côtés), et
 `transcribe_youtube()` qui retourne désormais `(texte, chemin de sortie)` — le
 nom du fichier produit dépend du titre de la vidéo, connu seulement là.
+
+### `app.py` — interface web, présentation seule
+
+Pendant exact de `cli.py`, dans le navigateur : **aucune** logique de
+transcription, de diarisation, de téléchargement ni de résumé n'y est écrite.
+Les deux points d'entrée coexistent et appellent les mêmes fonctions, donc une
+correction faite dans `src/` vaut pour les deux sans rien recopier.
+
+```
+onglet Fichier unique ──> fichier reçu écrit dans un dossier temporaire
+                     ──> transcribe_file() | diarize_file()   ──> output/{nom}[_diarized].txt
+onglet Dossier        ──> process_folder()                    ──> tableau succès / sautés / échecs
+onglet YouTube        ──> transcribe_youtube()                ──> idem
+                                     │
+                     case « Résumer » ──> summarize_text()    ──> output/{nom}_summary.txt
+```
+
+**Le nom du fichier reçu est conservé**, parce que c'est lui qui donne son nom à
+la sortie : un `cours.m4a` déposé dans le navigateur produit `output/cours.txt`,
+comme en CLI. Il est réduit à son basename avant écriture — il vient du
+navigateur, donc de l'extérieur, et un nom comme `../../x.wav` écrirait ailleurs.
+L'audio lui-même atterrit dans un dossier temporaire effacé aussitôt : seule la
+transcription survit.
+
+**Le champ « dossier » est confiné à une racine autorisée.** C'est le seul
+endroit de l'app où l'utilisateur tape un chemin libre. Sans borne, il suffirait
+d'exposer l'app sur le réseau — ce que Streamlit fait par défaut, voir
+l'avertissement plus haut — pour laisser n'importe qui lister et transcrire
+n'importe quel dossier de la machine. La racine est celle du dépôt ;
+`WHISPER_TOOLKIT_ROOT` l'élargit en connaissance de cause :
+
+```bash
+WHISPER_TOOLKIT_ROOT=~/Documents/cours streamlit run app.py
+```
+
+La vérification passe par `os.path.realpath`, qui résout `..` **et** les liens
+symboliques : ni `/etc`, ni `../../../../etc`, ni un lien posé dans le dépôt ne
+sortent de la racine (vérifié, Test 11). L'usage prévu reste local ; le
+garde-fou est posé maintenant plutôt qu'après.
+
+**Les options sont déclarées une fois pour les trois onglets**, comme le parseur
+parent `audio` de `cli.py` le fait pour les trois sous-commandes. Les
+avertissements que le CLI imprime deviennent ici du grisage : cocher
+« Identifier les locuteurs » désactive le champ langue, que whisperx ignorerait.
+
+**Ce que l'app réutilise sans le recopier**, au-delà des fonctions de pipeline :
+`cli._summarize_batch()` pour la règle de résumé d'un lot — résumer aussi les
+fichiers sautés par la reprise, mais pas ceux dont le `_summary.txt` existe déjà
+— et `batch._short_reason()` pour réduire la bannière ffmpeg à une ligne dans le
+tableau. Deux fonctions privées appelées depuis l'extérieur de leur module :
+c'est le prix payé pour ne pas dupliquer la règle, et ce sont les deux candidates
+si un jour l'API doit devenir publique.
+
+**Les imports lourds restent dans les fonctions**, pour la même raison qu'ailleurs
+et une de plus : Streamlit ré-exécute le script en entier à chaque interaction,
+donc tout ce qui est en tête de fichier est payé à chaque case cochée.
 
 ### `batch.py` — orchestration, pas un troisième pipeline
 
@@ -531,6 +615,13 @@ signifie ici : lancé pour de vrai et sortie vérifiée — pas seulement compil
 | └ avertissements d'options | ✅ | ✅ | ✅ | `--num-speakers` sans `--diarize`, `--language` avec |
 | └ codes de sortie | ✅ | ✅ | ✅ | `0` / `1`, échec partiel de lot compris |
 | └ imports paresseux | ✅ | ✅ | ✅ | `--help` en 0,03 s contre 0,72 s en imports directs |
+| `app.py` | ✅ | ✅ | ✅ | validé le 2026-08-07 dans un vrai navigateur (Test 11) |
+| └ onglet *Fichier unique* | ✅ | ✅ | ✅ | upload → `output/two_voices_generated.txt` |
+| └ onglet *Dossier (batch)* | ✅ | ✅ | ✅ | 2 succès / 1 échec isolé, puis reprise 2 sautés |
+| └ onglet *YouTube* | ✅ | ✅ | ✅ | vidéo NASA, seule ou avec résumé enchaîné |
+| └ case « Résumer » | ✅ | ✅ | ✅ | appel réel, résumé affiché et écrit dans `output/` |
+| └ racine autorisée | ✅ | ✅ | ✅ | `/etc` et `../../../../etc` refusés |
+| └ grisage langue / locuteurs | ✅ | ✅ | ✅ | équivalent des avertissements du CLI |
 | `src/__init__.py` | ✅ (vide) | ✅ | n/a | simple marqueur de package |
 | Surveillance de dossier | ❌ | — | — | volontairement non implémentée |
 | `tests/` | ❌ vide | — | — | aucun test automatisé |
@@ -1053,6 +1144,55 @@ identique, `youtube.py` affiche désormais aussi le chemin de sortie, aide de
 > calibré que sur Sonnet ; `--summary-model` reste donc à utiliser en
 > connaissance de cause.
 
+### Test 11 — `app.py`, les trois onglets dans un vrai navigateur (2026-08-07)
+
+L'app a été lancée (`streamlit run app.py`) et pilotée dans Chromium, pas
+seulement importée : chaque onglet a été utilisé comme un utilisateur le ferait —
+dépôt de fichier, saisie de chemin, clic sur le bouton — et le rendu vérifié sur
+capture d'écran.
+
+| Onglet | Scénario | Résultat |
+|---|---|---|
+| Fichier unique | dépôt de `two_voices_generated.wav` | texte français correct, `output/two_voices_generated.txt`, bouton de téléchargement |
+| Dossier (batch) | 3 fichiers audio + 1 `.txt` + 1 `.wav` corrompu | **2 succès / 0 sauté / 1 échec**, le `.txt` ignoré au listage |
+| Dossier (batch) | même dossier relancé | **0 / 2 sautés / 1**, la reprise se voit dans le tableau |
+| YouTube | `https://youtu.be/V0oo_Nybo6w` (NASA) | transcription anglaise conforme au Test 7 |
+| YouTube | la même, case « Résumer » cochée | résumé français affiché **et** écrit dans `output/` |
+
+Durées mesurées de bout en bout du script de pilotage — lancement du navigateur
+et chargement de la page compris, donc majorées par rapport au traitement seul :
+9,5 s pour l'onglet fichier, 12,0 s pour le lot de 3 fichiers, 14,7 s pour la
+vidéo NASA, 21,5 s avec le résumé enchaîné. Aucune exception Streamlit
+(`stException`) sur aucun run.
+
+**Le fichier corrompu est le cas qui compte** dans l'onglet lot : le traitement
+va au bout, la ligne en échec apparaît dans le tableau avec la bannière ffmpeg
+réduite à une ligne par `batch._short_reason()`, et les deux autres fichiers sont
+transcrits. C'est le comportement du CLI (Test 5), obtenu sans le réécrire.
+
+**Racine autorisée, vérifiée par contournement** et non par lecture du code :
+
+| Saisie | Obtenu |
+|---|---|
+| `test-audio/batch_demo` | accepté, lot traité |
+| `/etc` | refusé — « Chemin hors de la racine autorisée : /private/etc » |
+| `../../../../etc` | refusé, message identique |
+
+Le chemin affiché dans le refus est `/private/etc` et non `/etc` : c'est
+`realpath` qui a résolu le lien symbolique de macOS **avant** le test de
+confinement. C'est exactement ce qu'on lui demande.
+
+**Cas limites d'interface vérifiés :** bouton « Transcrire » grisé tant qu'aucun
+fichier n'est déposé, champ langue grisé dès que « Identifier les locuteurs » est
+coché, champ « nombre de locuteurs » grisé dans le cas inverse.
+
+**Ce que ce test ne dit pas.** Les fixtures du lot étaient de petits fichiers
+montés pour l'occasion, dans un sous-dossier temporaire de `test-audio/`. La
+diarisation n'a **pas** été exercée depuis l'app — le chemin est le même appel
+`diarize_file()` qu'en CLI, mais ce n'est pas une vérification. Un seul
+navigateur (Chromium), une seule session, aucun test de deux onglets de
+navigateur ouverts en même temps sur la même app.
+
 ### Environnement de test (vérifié le 2026-08-06)
 
 Mac M5 (`Darwin arm64`) — tout est en place :
@@ -1143,6 +1283,19 @@ Mac M5 (`Darwin arm64`) — tout est en place :
 - `summarize.py` : le prompt système n'est calibré que pour `claude-sonnet-5`.
   Sur `claude-haiku-4-5` et une entrée d'une phrase, le modèle répond à côté
   (Test 10). Aucun autre modèle n'a été essayé.
+- `app.py` : la diarisation n'a jamais été lancée depuis l'interface web, ni le
+  résumé d'un lot entier (case « Résumer » sur l'onglet dossier). Les deux
+  passent par les mêmes appels qu'en CLI, mais le chemin n'a pas été exécuté.
+- `app.py` : un traitement long bloque la page jusqu'à la fin — pas de barre de
+  progression fichier par fichier, seulement un spinner. Sur un lot de plusieurs
+  dizaines de fichiers, rien ne distingue « en cours » de « figé ». La sortie
+  détaillée de `process_folder()` part sur stdout, donc dans le terminal, pas
+  dans le navigateur.
+- `app.py` : `st.session_state` est propre à une session de navigateur. Deux
+  onglets ouverts sur la même app ont chacun leur résultat, mais écrivent dans le
+  même `output/` — deux traitements simultanés du même fichier n'ont pas été
+  provoqués.
+- `app.py` : testé sur Chromium uniquement, à une seule taille de fenêtre.
 - Le toolkit n'est pas installable (`pip install -e .`) : voir
   [Pourquoi `python src/cli.py`](#pourquoi-python-srcclipy-et-pas-une-commande-whisper-toolkit-installée).
 - Autres modèles que `whisper-large-v3-mlx`.
