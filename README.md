@@ -38,11 +38,19 @@ source venv/bin/activate
 streamlit run app.py           # http://localhost:8501
 ```
 
-Trois onglets — *Fichier unique* (glisser-déposer), *Dossier (batch)* et
-*YouTube* — avec les mêmes options qu'en ligne de commande, les mêmes sorties
-dans `output/`, et un bouton de téléchargement du `.txt`. Ce que l'app n'expose
-pas : la sous-commande `summarize` seule (le résumé s'y coche à la volée),
-`--summary-model` et `--summary-style`. Détail dans
+Quatre onglets. *Fichier unique* (glisser-déposer), *Dossier (batch)* et
+*YouTube* reprennent les options de la ligne de commande, écrivent dans
+`output/` sous les mêmes noms, et offrent un bouton de téléchargement du `.txt`.
+
+*Dictée rapide* est à part : on y parle au micro, le texte s'affiche dans un
+bloc à copier d'un clic, et **rien n'est écrit** — ni l'audio, qui ne quitte pas
+le dossier temporaire du système, ni le texte, sauf à cocher la sauvegarde. Pas
+de diarisation non plus : on dicte seul. C'est le seul onglet qui ne laisse pas
+de trace, et c'est délibéré — l'usage visé est de coller le texte ailleurs dans
+la seconde, pas d'archiver.
+
+Ce que l'app n'expose pas : la sous-commande `summarize` seule (le résumé s'y
+coche à la volée), `--summary-model` et `--summary-style`. Détail dans
 [`app.py` — interface web](#apppy--interface-web-présentation-seule).
 
 > ⚠️ **Streamlit écoute sur toutes les interfaces par défaut**, pas seulement
@@ -71,7 +79,7 @@ script écrit l'erreur sur sa sortie d'erreur et s'arrête. Lancé par l'applet,
 tout cela part dans `~/Library/Logs/WhisperToolkit.log`, dont l'applet remonte
 la fin dans une boîte de dialogue — voir *L'app Automator* plus bas.
 
-Cinq points méritent d'être connus avant d'y toucher :
+Six points méritent d'être connus avant d'y toucher :
 
 - **`--server.headless true` n'est pas cosmétique.** Sans lui, Streamlit ouvre
   son propre onglet de navigateur au démarrage : la fenêtre native s'afficherait
@@ -85,6 +93,42 @@ Cinq points méritent d'être connus avant d'y toucher :
   minimal`). Il s'adresse à qui développe l'app, pas à qui l'utilise, et ses
   actions n'ont aucun sens pour une app locale dans une fenêtre.
 - **L'identité de l'app tient à un bundle bâti exprès** — voir juste en dessous.
+- **Le micro demande deux ajouts**, sans quoi la dictée reste muette — voir
+  *Le micro dans la fenêtre native*.
+
+#### Le micro dans la fenêtre native
+
+L'onglet *Dictée rapide* enregistre par `getUserMedia`. Dans un navigateur, le
+navigateur demande l'autorisation et tout est dit. Dans un WKWebView, c'est
+l'application hôte qu'on interroge, et il a fallu deux pièces :
+
+- **`NSMicrophoneUsageDescription` dans l'`Info.plist` du bundle**, posée par
+  `make_launcher_bundle.sh`. Sans elle, macOS tue le processus à la première
+  demande au lieu d'afficher l'invite.
+- **Le délégué `webView:requestMediaCapturePermissionForOrigin:…`**, greffé par
+  `allow_microphone()` dans `launch_desktop.py`. pywebview 6.2.1 ne l'implémente
+  pas : son `BrowserDelegate` couvre les panneaux d'alerte et le sélecteur de
+  fichiers, pas la capture.
+
+Sans ce délégué, la panne est particulièrement pénible à diagnostiquer :
+`getUserMedia` **ne rejette pas, il ne répond jamais**. Aucune erreur en
+console, aucune invite, un bouton d'enregistrement qui reste inerte. Mesuré :
+la promesse était toujours en attente au bout de 20 s. Une fois le délégué en
+place, WebKit l'appelle avec le type 1 (micro) et la promesse résout avec une
+piste audio.
+
+Greffer une méthode sur la classe d'une dépendance reste un correctif à
+surveiller : si une version de pywebview implémente ce délégué, `allow_microphone()`
+n'a plus lieu d'être. Elle vérifie déjà `instancesRespondToSelector_` avant
+d'écrire, et ne recouvre donc jamais une implémentation officielle.
+
+Accorder dans le délégué ne court-circuite rien : macOS pose ensuite sa propre
+question à l'utilisateur, et la réponse se révoque dans Réglages Système ›
+Confidentialité › Microphone. Pour reprovoquer l'invite :
+
+```bash
+tccutil reset Microphone com.jad.whisper-toolkit
+```
 
 #### Icône et nom dans le Dock
 
@@ -434,10 +478,19 @@ symboliques : ni `/etc`, ni `../../../../etc`, ni un lien posé dans le dépôt 
 sortent de la racine (vérifié, Test 11). L'usage prévu reste local ; le
 garde-fou est posé maintenant plutôt qu'après.
 
-**Les options sont déclarées une fois pour les trois onglets**, comme le parseur
-parent `audio` de `cli.py` le fait pour les trois sous-commandes. Les
-avertissements que le CLI imprime deviennent ici du grisage : cocher
-« Identifier les locuteurs » désactive le champ langue, que whisperx ignorerait.
+**Les options sont déclarées une fois pour les trois onglets** qui transcrivent
+un fichier, comme le parseur parent `audio` de `cli.py` le fait pour les trois
+sous-commandes. Les avertissements que le CLI imprime deviennent ici du
+grisage : cocher « Identifier les locuteurs » désactive le champ langue, que
+whisperx ignorerait. *Dictée rapide* reste en dehors : ni diarisation ni résumé
+n'y ont de sens, elle ne reprend que le sélecteur de langue.
+
+**L'audio dicté ne touche le disque que dans le dossier temporaire du système.**
+`_transcribe_recording()` l'y écrit — mlx-whisper décode le fichier par ffmpeg,
+ce détour n'est pas évitable — puis l'efface dans un `finally`, succès comme
+échec. Rien n'est laissé au ramasse-miettes, qui ne promet ni le moment ni le
+fait de passer. Vérifié : après transcription, aucun fichier du dépôt n'a été
+modifié et aucun `.wav` ne subsiste dans le dossier temporaire.
 
 **La langue est un menu déroulant, pas un champ libre.** C'est la conséquence
 directe du défaut documenté plus bas : une langue erronée ne produit pas une

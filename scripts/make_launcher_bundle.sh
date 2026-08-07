@@ -42,6 +42,7 @@ ICNS="$RACINE/assets/app-icon.icns"
 
 NOM="Whisper Toolkit"
 IDENTIFIANT="com.jad.whisper-toolkit"
+MICRO="Whisper Toolkit a besoin du micro pour la dictée rapide."
 
 # Le nom du bundle n'est pas cosmétique : c'est lui, et non `CFBundleName`, que
 # le Dock affiche au survol. D'où « Whisper Toolkit.app » à l'identique.
@@ -87,6 +88,11 @@ mv "$DEST/Contents/MacOS/Python" "$DEST/Contents/MacOS/$NOM"
     || /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName $NOM" "$PLIST"
 /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $IDENTIFIANT" "$PLIST"
 /usr/libexec/PlistBuddy -c "Set :CFBundleIconFile app-icon" "$PLIST"
+# Sans cette clé, macOS tue le processus à la première demande de micro, au lieu
+# d'afficher la demande d'autorisation : l'onglet « Dictée rapide » n'aurait
+# aucun moyen d'enregistrer. Le texte est celui que voit l'utilisateur.
+/usr/libexec/PlistBuddy -c "Add :NSMicrophoneUsageDescription string $MICRO" "$PLIST" 2>/dev/null \
+    || /usr/libexec/PlistBuddy -c "Set :NSMicrophoneUsageDescription $MICRO" "$PLIST"
 # Héritées de l'interpréteur et sans objet ici : l'aide de MacPython et
 # l'association de l'app à tous les types de fichiers.
 /usr/libexec/PlistBuddy -c "Delete :CFBundleDocumentTypes" "$PLIST" 2>/dev/null || true

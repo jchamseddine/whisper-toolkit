@@ -113,7 +113,7 @@ chacun est le meilleur outil pour son usage.
 | `youtube.py` | télécharge l'audio (yt-dlp), puis délègue |
 | `summarize.py` | texte → résumé via l'API Claude — seul module qui sorte de la machine, et seul qui coûte de l'argent |
 | `cli.py` | point d'entrée : une commande, quatre sous-commandes |
-| `app.py` | second point d'entrée : interface web Streamlit, trois onglets. Coexiste avec le CLI, ne le remplace pas |
+| `app.py` | second point d'entrée : interface web Streamlit, quatre onglets. Coexiste avec le CLI, ne le remplace pas. *Dictée rapide* est le seul à n'écrire ni audio ni texte par défaut |
 
 ### Comment ça s'assemble
 

@@ -112,6 +112,62 @@ def set_dock_identity() -> None:
         NSApplication.sharedApplication().setApplicationIconImage_(image)
 
 
+def allow_microphone() -> None:
+    """Ajoute à pywebview le délégué sans lequel WKWebView refuse le micro.
+
+    L'onglet « Dictée rapide » enregistre par `getUserMedia`. Dans un navigateur,
+    c'est le navigateur qui demande l'autorisation ; dans un WKWebView, c'est
+    l'application hôte, via
+    `webView:requestMediaCapturePermissionForOrigin:initiatedByFrame:type:decisionHandler:`.
+    pywebview 6.2.1 ne l'implémente pas — son `BrowserDelegate` couvre les
+    panneaux d'alerte et le sélecteur de fichiers, pas la capture — et WebKit
+    refuse alors la demande. La méthode est donc greffée sur sa classe.
+
+    Deux garde-fous s'ajoutent à celui-ci, et ce n'est pas redondant : la clé
+    `NSMicrophoneUsageDescription` de l'`Info.plist` du bundle, sans laquelle
+    macOS tuerait le processus, et l'autorisation micro que le système demande à
+    l'utilisateur à la première tentative. Accorder ici ne court-circuite donc
+    rien : cela laisse seulement la question arriver jusqu'à lui.
+
+    Greffer une méthode sur la classe d'une dépendance reste un correctif à
+    surveiller : si une version de pywebview implémente ce délégué, celui-ci
+    devient inutile et doit sauter. L'échec est silencieux — sans micro, les
+    autres onglets marchent encore.
+    """
+    try:
+        import objc
+        from webview.platforms.cocoa import BrowserView
+    except (ImportError, AttributeError):
+        return
+
+    delegue = getattr(BrowserView, "BrowserDelegate", None)
+    if delegue is None:
+        return
+
+    selecteur = (
+        b"webView:requestMediaCapturePermissionForOrigin:"
+        b"initiatedByFrame:type:decisionHandler:"
+    )
+    if delegue.instancesRespondToSelector_(selecteur.decode()):
+        return  # déjà fourni par pywebview : ne rien écraser
+
+    def accorder(self, webview_, origin, frame, capture_type, decision_handler):
+        decision_handler(1)  # WKPermissionDecisionGrant
+
+    objc.classAddMethods(
+        delegue,
+        [
+            objc.selector(
+                accorder,
+                selector=selecteur,
+                # v@:@@@q@? — rien en retour, quatre objets, le type de capture
+                # en NSInteger, et le bloc de réponse.
+                signature=b"v@:@@@q@?",
+            )
+        ],
+    )
+
+
 def port_is_taken(host: str, port: int) -> bool:
     """Vrai si quelque chose écoute déjà sur ce port."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
@@ -227,6 +283,9 @@ def main() -> int:
         # Importé ici seulement : pywebview tire tout PyObjC avec lui, et le
         # payer avant de savoir si le serveur répond ne sert à rien.
         import webview
+
+        # Après l'import, forcément : la classe à corriger vit dans pywebview.
+        allow_microphone()
 
         webview.create_window(
             WINDOW_TITLE,

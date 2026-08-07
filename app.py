@@ -6,12 +6,18 @@ fonctions des modules qui les portent, puis affiche ce qu'elles ont produit. Les
 deux points d'entrée partagent donc le même code métier, et les sorties
 atterrissent au même endroit (`output/`), sous les mêmes noms.
 
+Une exception assumée : l'onglet « Dictée rapide », qui n'existe pas côté CLI et
+n'écrit rien — ni l'audio, ni le texte, sauf demande explicite. Voir
+`_transcribe_recording()`.
+
 Lancement : `streamlit run app.py` depuis la racine du dépôt.
 """
 
+import hashlib
 import os
 import sys
 import tempfile
+from datetime import datetime
 
 # `python src/cli.py` place `src/` en tête de `sys.path`, ce qui fait marcher les
 # imports plats (`from transcribe import …`) des modules du toolkit.
@@ -425,6 +431,109 @@ def _tab_batch() -> None:
     _render_batch()
 
 
+def _transcribe_recording(data: bytes, language: str | None) -> dict:
+    """Transcrit un enregistrement en mémoire, sans jamais le poser dans le dépôt.
+
+    L'audio dicté est du brouillon : il n'a pas à survivre à sa transcription, ni
+    à rejoindre `test-audio/` ou `output/` avec les fichiers qu'on garde. Il ne
+    touche donc le disque que dans le dossier temporaire du système, et le
+    `finally` l'y efface — succès, échec ou exception imprévue. Rien n'est laissé
+    au ramasse-miettes, qui ne promet ni le moment ni le fait de passer.
+
+    `transcribe_file()` demande un chemin parce que mlx-whisper décode le fichier
+    lui-même, en appelant ffmpeg : ce détour par le disque n'est pas évitable.
+    """
+    from transcribe import transcribe_file
+
+    path = None
+    try:
+        # `delete=False` parce que le fichier doit rester lisible après la
+        # fermeture du handle, le temps que ffmpeg le décode.
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as handle:
+            handle.write(data)
+            path = handle.name
+
+        with st.spinner("Transcription de la dictée…"):
+            text = transcribe_file(path, language=language)
+    except (FileNotFoundError, ValueError) as error:
+        return {"text": None, "error": str(error), "path": None}
+    finally:
+        if path:
+            os.unlink(path)
+
+    return {"text": text.strip(), "error": None, "path": None}
+
+
+def _tab_dictation() -> None:
+    """Dicter au micro et récupérer le texte, sans rien laisser derrière.
+
+    Pas de diarisation ici : on dicte seul. Pas de sauvegarde non plus par
+    défaut — l'usage visé est de copier le texte ailleurs dans la seconde, et
+    écrire un fichier à chaque essai encombrerait `output/` pour rien.
+    """
+    st.caption(
+        "Dictée mono-locuteur : l'audio n'est ni conservé ni enregistré dans le "
+        "dépôt, et le texte n'est sauvegardé que si tu le demandes."
+    )
+
+    language_label = st.selectbox(
+        "Langue",
+        options=list(LANGUAGES),
+        index=0,
+        key="dictation_language",
+        help=LANGUAGE_HELP,
+    )
+    language = LANGUAGES[language_label]
+
+    recording = st.audio_input("Enregistrement", key="dictation_input")
+    if recording is None:
+        # Enregistrement supprimé par l'utilisateur : le texte qui l'accompagnait
+        # n'a plus de sujet.
+        st.session_state.pop("dictation", None)
+        return
+
+    data = recording.getvalue()
+
+    # Streamlit réexécute tout le script au moindre clic — cocher la case de
+    # sauvegarde suffirait à relancer une transcription. On ne retranscrit donc
+    # que si l'audio ou la langue ont changé, la langue en faisant partie parce
+    # qu'en changer est une demande explicite de refaire la passe.
+    signature = (hashlib.sha1(data).hexdigest(), language)
+    state = st.session_state.get("dictation")
+    if not state or state["signature"] != signature:
+        state = _transcribe_recording(data, language)
+        state["signature"] = signature
+        st.session_state["dictation"] = state
+
+    if state["error"]:
+        st.error(state["error"])
+        return
+
+    if not state["text"]:
+        st.warning("Rien n'a été transcrit — enregistrement vide ou inaudible.")
+        return
+
+    # `st.code` plutôt qu'un `text_area` : il porte un bouton « copier » natif,
+    # qui est le geste attendu ici.
+    st.code(state["text"], language=None, wrap_lines=True)
+
+    if st.checkbox(
+        "Sauvegarder quand même dans output/",
+        key="dictation_save",
+        help="Décoché, rien n'est écrit : la dictée ne vit que dans cet écran.",
+    ):
+        if not state["path"]:
+            from transcribe import save_transcript
+
+            # `save_transcript()` ne lit pas l'audio, il ne se sert de ce chemin
+            # que pour nommer sa sortie — c'est justement ce qui permet de le
+            # nommer sans reconstruire la convention ici. Le fichier temporaire,
+            # lui, n'existe plus depuis longtemps.
+            horodatage = datetime.now().strftime("%Y-%m-%d-%Hh%M")
+            state["path"] = save_transcript(state["text"], f"dictee-{horodatage}.wav")
+        st.success(f"Transcription enregistrée : {state['path']}")
+
+
 def _tab_youtube() -> None:
     url = st.text_input("URL de la vidéo", key="youtube_url", placeholder="https://youtu.be/…")
     options = _audio_options("youtube")
@@ -478,7 +587,9 @@ def main() -> None:
             "terminal où `ffmpeg` répond."
         )
 
-    single, batch, youtube = st.tabs(["Fichier unique", "Dossier (batch)", "YouTube"])
+    single, batch, youtube, dictation = st.tabs(
+        ["Fichier unique", "Dossier (batch)", "YouTube", "Dictée rapide"]
+    )
 
     with single:
         _tab_single()
@@ -486,6 +597,8 @@ def main() -> None:
         _tab_batch()
     with youtube:
         _tab_youtube()
+    with dictation:
+        _tab_dictation()
 
 
 if __name__ == "__main__":
