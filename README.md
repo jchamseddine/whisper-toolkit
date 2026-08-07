@@ -290,6 +290,22 @@ parent `audio` de `cli.py` le fait pour les trois sous-commandes. Les
 avertissements que le CLI imprime deviennent ici du grisage : cocher
 « Identifier les locuteurs » désactive le champ langue, que whisperx ignorerait.
 
+**La langue est un menu déroulant, pas un champ libre.** C'est la conséquence
+directe du défaut documenté plus bas : une langue erronée ne produit pas une
+erreur mais une traduction. Un champ texte acceptait `langue random` sans
+broncher ; le sélecteur ne peut rendre que l'une des 30 entrées de la constante
+`LANGUAGES`, et `LANGUAGES[label]` lèverait un `KeyError` bruyant plutôt que de
+laisser passer autre chose. Taper filtre la liste — `Esp` ne laisse
+qu'`Espagnol` — sans jamais permettre d'en sortir.
+
+C'est un sous-ensemble courant, pas les 100 langues que Whisper connaît : la
+liste complète n'est lisible que dans `mlx_whisper.tokenizer.LANGUAGES`, qui ne
+s'installe que sur Apple Silicon et coûte 0,8 s à l'import. La lire de là
+rendrait l'app inaffichable ailleurs, pour un menu déroulant. Les 29 codes ont
+donc été recopiés, puis **vérifiés un à un** contre la liste officielle. Le CLI,
+lui, reste ouvert à n'importe quel code Whisper via `--language` — c'est
+l'interface qui restreint, pas le toolkit.
+
 **Ce que l'app réutilise sans le recopier**, au-delà des fonctions de pipeline :
 `cli.summarize_batch()` pour la règle de résumé d'un lot — résumer aussi les
 fichiers sautés par la reprise, mais pas ceux dont le `_summary.txt` existe déjà
@@ -625,6 +641,7 @@ signifie ici : lancé pour de vrai et sortie vérifiée — pas seulement compil
 | └ case « Résumer » | ✅ | ✅ | ✅ | appel réel, résumé affiché et écrit dans `output/` |
 | └ racine autorisée | ✅ | ✅ | ✅ | `/etc` et `../../../../etc` refusés |
 | └ grisage langue / locuteurs | ✅ | ✅ | ✅ | équivalent des avertissements du CLI |
+| └ sélecteur de langue | ✅ | ✅ | ✅ | valeur invalide impossible, `en` forcé vérifié par la traduction |
 | `src/__init__.py` | ✅ (vide) | ✅ | n/a | simple marqueur de package |
 | Surveillance de dossier | ❌ | — | — | volontairement non implémentée |
 | `tests/` | ❌ vide | — | — | aucun test automatisé |
@@ -1189,6 +1206,26 @@ confinement. C'est exactement ce qu'on lui demande.
 fichier n'est déposé, champ langue grisé dès que « Identifier les locuteurs » est
 coché, champ « nombre de locuteurs » grisé dans le cas inverse.
 
+**Sélecteur de langue** (remplace le champ texte libre du premier jet, qui
+acceptait `langue random`) :
+
+| Test | Obtenu |
+|---|---|
+| Liste déroulante | 30 entrées, « Détection automatique » en tête et par défaut |
+| Filtre `Esp` | une seule proposition, `Espagnol` |
+| Filtre `langue random` | **« No results »**, rien à sélectionner |
+| Même saisie + `Entrée` + perte du focus | le champ revient à « Détection automatique », la saisie est jetée |
+| Les 29 codes | tous présents dans `mlx_whisper.tokenizer.LANGUAGES`, sans doublon |
+| Onglets *Dossier* et *YouTube* | même sélecteur, une seule déclaration dans `_audio_options()` |
+
+**La valeur transmise a été vérifiée par l'écart, pas par l'affichage.**
+Sélectionner « Français » sur une fixture française ne prouve rien : la
+détection automatique aurait rendu le même texte. C'est « Anglais » sur cette
+même fixture qui tranche — la sortie ressort traduite en anglais, mot pour mot
+celle du Test 8 (« Hello, did you have time to look at the supplier's file this
+morning? »). Le code `en` est donc bien arrivé jusqu'à `transcribe_file()`.
+Repassé en « Français », le texte français correct revient.
+
 **Ce que ce test ne dit pas.** Les fixtures du lot étaient de petits fichiers
 montés pour l'occasion, dans un sous-dossier temporaire de `test-audio/`. La
 diarisation n'a **pas** été exercée depuis l'app — le chemin est le même appel
@@ -1298,6 +1335,10 @@ Mac M5 (`Darwin arm64`) — tout est en place :
   onglets ouverts sur la même app ont chacun leur résultat, mais écrivent dans le
   même `output/` — deux traitements simultanés du même fichier n'ont pas été
   provoqués.
+- `app.py` : le sélecteur de langue ne propose que 30 entrées sur les 100 langues
+  que Whisper connaît. Les autres restent atteignables en CLI (`--language`),
+  ou en ajoutant une ligne à `LANGUAGES`. Seuls `fr` et `en` ont été exercés
+  depuis l'app ; les 27 autres codes sont vérifiés valides mais jamais lancés.
 - `app.py` : testé sur Chromium uniquement, à une seule taille de fenêtre.
 - Le toolkit n'est pas installable (`pip install -e .`) : voir
   [Pourquoi `python src/cli.py`](#pourquoi-python-srcclipy-et-pas-une-commande-whisper-toolkit-installée).

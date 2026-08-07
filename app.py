@@ -40,10 +40,55 @@ from transcribe import SUPPORTED_EXTENSIONS  # noqa: E402
 BROWSE_ROOT = os.path.realpath(os.environ.get("WHISPER_TOOLKIT_ROOT", PROJECT_ROOT))
 
 LANGUAGE_HELP = (
-    "Code langue (`fr`, `en`…). À laisser vide sauf besoin précis : forcer une "
+    "À laisser sur « Détection automatique » sauf besoin précis : forcer une "
     "langue qui n'est pas celle de l'audio ne produit pas une erreur mais une "
-    "traduction inventée, fluide et indétectable dans la sortie."
+    "traduction inventée, fluide et indétectable dans la sortie. "
+    "Tape pour filtrer la liste."
 )
+
+# Langues du sélecteur, code Whisper en valeur. `None` laisse la détection
+# automatique, qui reste le défaut partout dans le toolkit.
+#
+# C'est un sous-ensemble courant, pas les 100 langues que Whisper connaît. La
+# liste complète n'est lisible que dans `mlx_whisper.tokenizer.LANGUAGES`, qui
+# ne s'installe que sur Apple Silicon : la tirer de là rendrait l'app
+# inaffichable ailleurs — et coûterait 0,8 s au démarrage — pour un menu
+# déroulant. Ajouter une langue ici tient en une ligne, et le CLI reste ouvert à
+# n'importe quel code Whisper via `--language`.
+#
+# Les codes ont été vérifiés un à un contre `mlx_whisper.tokenizer.LANGUAGES`.
+LANGUAGES: dict[str, str | None] = {
+    "Détection automatique": None,
+    "Français": "fr",
+    "Anglais": "en",
+    "Espagnol": "es",
+    "Allemand": "de",
+    "Italien": "it",
+    "Portugais": "pt",
+    "Néerlandais": "nl",
+    "Arabe": "ar",
+    "Catalan": "ca",
+    "Chinois": "zh",
+    "Coréen": "ko",
+    "Danois": "da",
+    "Finnois": "fi",
+    "Grec": "el",
+    "Hébreu": "he",
+    "Hindi": "hi",
+    "Hongrois": "hu",
+    "Indonésien": "id",
+    "Japonais": "ja",
+    "Norvégien": "no",
+    "Polonais": "pl",
+    "Roumain": "ro",
+    "Russe": "ru",
+    "Suédois": "sv",
+    "Tchèque": "cs",
+    "Thaï": "th",
+    "Turc": "tr",
+    "Ukrainien": "uk",
+    "Vietnamien": "vi",
+}
 
 
 def _resolve_browse_path(raw: str) -> str:
@@ -124,20 +169,23 @@ def _audio_options(prefix: str) -> dict:
             help="Seule option payante, et seule étape qui sorte de la machine : "
             "le texte est envoyé à l'API Claude.",
         )
-        # Le champ est grisé en diarisation, où whisperx détecte la langue de son
-        # côté : c'est l'équivalent natif de l'avertissement que le CLI imprime.
-        language = st.text_input(
+        # Un sélecteur et non un champ libre : une valeur inventée ne serait pas
+        # rejetée par Whisper, elle produirait une traduction. Le champ est grisé
+        # en diarisation, où whisperx détecte la langue de son côté — c'est
+        # l'équivalent natif de l'avertissement que le CLI imprime.
+        language_label = st.selectbox(
             "Langue",
+            options=list(LANGUAGES),
+            index=0,
             key=f"{prefix}_language",
             disabled=diarize,
-            placeholder="détectée par whisperx" if diarize else "détection automatique",
             help=LANGUAGE_HELP,
         )
 
     return {
         "diarize": diarize,
         "num_speakers": int(num_speakers) if num_speakers else None,
-        "language": language.strip() or None,
+        "language": LANGUAGES[language_label],
         "summarize": summarize,
     }
 
