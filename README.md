@@ -1,209 +1,208 @@
 # whisper-toolkit
 
-CLI Python de transcription audio **locale**, basé sur Whisper.
+Python CLI for **local** audio transcription, built on Whisper.
 
-> **Statut : en cours de développement.** Transcription locale, diarisation,
-> traitement par lot, transcription depuis une URL YouTube et résumé via l'API
-> Claude sont implémentés et exécutés pour de vrai, derrière un CLI unifié —
-> doublé d'une interface web Streamlit qui appelle le même code.
-> Deux réserves : la séparation des locuteurs n'a été testée que sur des voix de
-> synthèse, sans chevauchement de parole, et le résumé n'a été mesuré que sur
-> une transcription écrite à la main, pas sur une vraie sortie Whisper longue.
-> La surveillance de dossier n'est pas commencée.
-> Détail dans [Testing Status](#testing-status).
+> **Status: under development.** Local transcription, diarization, batch
+> processing, transcription from a YouTube URL and summarization via the Claude
+> API are implemented and actually run for real, behind a unified CLI — doubled
+> by a Streamlit web interface that calls the same code.
+> Two caveats: speaker separation has only been tested on synthetic voices, with
+> no overlapping speech, and summarization has only been measured on a
+> hand-written transcript, not on a real long Whisper output.
+> Folder watching has not been started.
+> Details in [Testing Status](#testing-status).
 
 ## Usage
 
-Tout passe par une seule commande, avec une sous-commande par mode d'entrée.
+Everything goes through a single command, with one subcommand per input mode.
 
 ```bash
 source venv/bin/activate
 
-python src/cli.py transcribe cours.m4a              # un fichier
-python src/cli.py batch mes-cours/                  # un dossier entier
-python src/cli.py youtube 'https://youtu.be/...'    # une URL YouTube
-python src/cli.py summarize output/cours.txt        # résumer un texte déjà produit
+python src/cli.py transcribe lecture.m4a            # one file
+python src/cli.py batch my-lectures/                # a whole folder
+python src/cli.py youtube 'https://youtu.be/...'    # a YouTube URL
+python src/cli.py summarize output/lecture.txt      # summarize an existing text
 ```
 
-Les trois premières écrivent dans `output/`. `python src/cli.py --help`, et
-`python src/cli.py <sous-commande> --help`, listent le reste.
+The first three write into `output/`. `python src/cli.py --help`, and
+`python src/cli.py <subcommand> --help`, list the rest.
 
-### Interface web
+### Web interface
 
-Une interface Streamlit couvre les trois entrées audio, **en plus** du CLI —
-elle ne le remplace pas, et les deux appellent exactement le même code.
+A Streamlit interface covers the three audio inputs, **on top of** the CLI — it
+does not replace it, and both call exactly the same code.
 
 ```bash
 source venv/bin/activate
 streamlit run app.py           # http://localhost:8501
 ```
 
-Quatre onglets. *Fichier unique* (glisser-déposer), *Dossier (batch)* et
-*YouTube* reprennent les options de la ligne de commande, écrivent dans
-`output/` sous les mêmes noms, et offrent un bouton de téléchargement du `.txt`.
+Four tabs. *Single file* (drag and drop), *Folder (batch)* and *YouTube* carry
+the command line's options over, write into `output/` under the same names, and
+offer a download button for the `.txt`.
 
-*Dictée rapide* est à part : on y parle au micro, le texte s'affiche dans un
-bloc à copier d'un clic, et **rien n'est écrit** — ni l'audio, qui ne quitte pas
-le dossier temporaire du système, ni le texte, sauf à cocher la sauvegarde. Pas
-de diarisation non plus : on dicte seul. C'est le seul onglet qui ne laisse pas
-de trace, et c'est délibéré — l'usage visé est de coller le texte ailleurs dans
-la seconde, pas d'archiver.
+*Quick dictation* stands apart: you speak into the microphone, the text appears
+in a block you copy with one click, and **nothing is written** — neither the
+audio, which never leaves the system temporary folder, nor the text, unless you
+tick the save box. No diarization either: you dictate alone. It is the only tab
+that leaves no trace, and that is deliberate — the intended use is to paste the
+text somewhere else within seconds, not to archive it.
 
-Ce que l'app n'expose pas : la sous-commande `summarize` seule (le résumé s'y
-coche à la volée), `--summary-model` et `--summary-style`. Détail dans
-[`app.py` — interface web](#apppy--interface-web-présentation-seule).
+What the app does not expose: the `summarize` subcommand on its own (the summary
+is ticked on the fly there), `--summary-model` and `--summary-style`. Details in
+[`app.py` — web interface](#apppy--web-interface-presentation-only).
 
-> ⚠️ **Streamlit écoute sur toutes les interfaces par défaut**, pas seulement
-> sur `localhost` : lancé tel quel, il affiche une « Network URL » joignable par
-> tout le réseau local. Sur un réseau qui n'est pas le tien :
+> ⚠️ **Streamlit listens on every interface by default**, not just on
+> `localhost`: launched as-is, it shows a "Network URL" reachable by the whole
+> local network. On a network that is not yours:
 >
 > ```bash
 > streamlit run app.py --server.address localhost
 > ```
 
-### Fenêtre native, sans navigateur
+### Native window, no browser
 
-`launch_desktop.py` sert la même interface dans une fenêtre macOS (pywebview)
-plutôt que dans un onglet. C'est ce que lance l'app Automator.
+`launch_desktop.py` serves the same interface in a macOS window (pywebview)
+rather than in a tab. That is what the Automator app launches.
 
 ```bash
 source venv/bin/activate
 python launch_desktop.py
 ```
 
-Il démarre Streamlit en sous-processus, attend que le serveur réponde (15 s
-maximum), puis ouvre la fenêtre. À la fermeture de celle-ci, le serveur est
-arrêté avec toute sa descendance — `lsof -i :8501` doit être vide juste après.
-Si le serveur ne répond pas dans le délai, aucune fenêtre n'est ouverte : le
-script écrit l'erreur sur sa sortie d'erreur et s'arrête. Lancé par l'applet,
-tout cela part dans `~/Library/Logs/WhisperToolkit.log`, dont l'applet remonte
-la fin dans une boîte de dialogue — voir *L'app Automator* plus bas.
+It starts Streamlit as a subprocess, waits for the server to answer (15 s at
+most), then opens the window. When the window closes, the server is stopped
+along with all its descendants — `lsof -i :8501` must be empty right after. If
+the server does not answer within the delay, no window is opened: the script
+writes the error to its standard error and stops. Launched by the applet, all of
+that goes to `~/Library/Logs/WhisperToolkit.log`, whose tail the applet surfaces
+in a dialog box — see *The Automator app* below.
 
-Six points méritent d'être connus avant d'y toucher :
+Six points are worth knowing before touching it:
 
-- **`--server.headless true` n'est pas cosmétique.** Sans lui, Streamlit ouvre
-  son propre onglet de navigateur au démarrage : la fenêtre native s'afficherait
-  *en plus* du navigateur.
-- **Le port 8501 est vérifié avant le lancement.** Un serveur déjà en place
-  répondrait au sondage, et la fenêtre s'ouvrirait sur cette instance étrangère
-  pendant que notre sous-processus meurt faute de port.
-- **Streamlit tourne dans sa propre session de processus.** Tuer le seul parent
-  laisserait ses enfants tenir le port ; c'est le groupe entier qui est terminé.
-- **Le menu « Deploy / Rerun / Clear cache » est retiré** (`--client.toolbarMode
-  minimal`). Il s'adresse à qui développe l'app, pas à qui l'utilise, et ses
-  actions n'ont aucun sens pour une app locale dans une fenêtre.
-- **L'identité de l'app tient à un bundle bâti exprès** — voir juste en dessous.
-- **Le micro demande deux ajouts**, sans quoi la dictée reste muette — voir
-  *Le micro dans la fenêtre native*.
+- **`--server.headless true` is not cosmetic.** Without it, Streamlit opens a
+  browser tab of its own at startup: the native window would show up *on top of*
+  the browser.
+- **Port 8501 is checked before launching.** A server already in place would
+  answer the probe, and the window would open on that foreign instance while our
+  subprocess dies for want of a port.
+- **Streamlit runs in its own process session.** Killing only the parent would
+  leave its children holding the port; the whole group is terminated.
+- **The "Deploy / Rerun / Clear cache" menu is removed**
+  (`--client.toolbarMode minimal`). It addresses whoever develops the app, not
+  whoever uses it, and its actions make no sense for a local app in a window.
+- **The app's identity rests on a purpose-built bundle** — see just below.
+- **The microphone takes two additions**, without which dictation stays mute —
+  see *The microphone in the native window*.
 
-#### Le micro dans la fenêtre native
+#### The microphone in the native window
 
-L'onglet *Dictée rapide* enregistre par `getUserMedia`. Dans un navigateur, le
-navigateur demande l'autorisation et tout est dit. Dans un WKWebView, c'est
-l'application hôte qu'on interroge, et il a fallu deux pièces :
+The *Quick dictation* tab records through `getUserMedia`. In a browser, the
+browser asks for permission and that is that. In a WKWebView, the host
+application is the one being asked, and two pieces were needed:
 
-- **`NSMicrophoneUsageDescription` dans l'`Info.plist` du bundle**, posée par
-  `make_launcher_bundle.sh`. Sans elle, macOS tue le processus à la première
-  demande au lieu d'afficher l'invite.
-- **Le délégué `webView:requestMediaCapturePermissionForOrigin:…`**, greffé par
-  `allow_microphone()` dans `launch_desktop.py`. pywebview 6.2.1 ne l'implémente
-  pas : son `BrowserDelegate` couvre les panneaux d'alerte et le sélecteur de
-  fichiers, pas la capture.
+- **`NSMicrophoneUsageDescription` in the bundle's `Info.plist`**, set by
+  `make_launcher_bundle.sh`. Without it, macOS kills the process at the first
+  request instead of showing the prompt.
+- **The `webView:requestMediaCapturePermissionForOrigin:…` delegate**, grafted
+  by `allow_microphone()` in `launch_desktop.py`. pywebview 6.2.1 does not
+  implement it: its `BrowserDelegate` covers alert panels and the file picker,
+  not capture.
 
-Sans ce délégué, la panne est particulièrement pénible à diagnostiquer :
-`getUserMedia` **ne rejette pas, il ne répond jamais**. Aucune erreur en
-console, aucune invite, un bouton d'enregistrement qui reste inerte. Mesuré :
-la promesse était toujours en attente au bout de 20 s. Une fois le délégué en
-place, WebKit l'appelle avec le type 1 (micro) et la promesse résout avec une
-piste audio.
+Without that delegate, the failure is particularly painful to diagnose:
+`getUserMedia` **does not reject, it simply never answers**. No console error,
+no prompt, a record button that stays inert. Measured: the promise was still
+pending after 20 s. Once the delegate is in place, WebKit calls it with type 1
+(microphone) and the promise resolves with an audio track.
 
-Greffer une méthode sur la classe d'une dépendance reste un correctif à
-surveiller : si une version de pywebview implémente ce délégué, `allow_microphone()`
-n'a plus lieu d'être. Elle vérifie déjà `instancesRespondToSelector_` avant
-d'écrire, et ne recouvre donc jamais une implémentation officielle.
+Grafting a method onto a dependency's class remains a patch to keep an eye on:
+if a version of pywebview implements this delegate, `allow_microphone()` has no
+reason to exist. It already checks `instancesRespondToSelector_` before writing,
+and therefore never covers over an official implementation.
 
-Accorder dans le délégué ne court-circuite rien : macOS pose ensuite sa propre
-question à l'utilisateur, et la réponse se révoque dans Réglages Système ›
-Confidentialité › Microphone. Pour reprovoquer l'invite :
+Granting inside the delegate short-circuits nothing: macOS then asks the user
+its own question, and the answer is revoked in System Settings › Privacy ›
+Microphone. To trigger the prompt again:
 
 ```bash
 tccutil reset Microphone com.jad.whisper-toolkit
 ```
 
-#### Icône et nom dans le Dock
+#### Icon and name in the Dock
 
-macOS identifie un processus par le bundle `.app` auquel appartient son
-exécutable. Le `python3.12` de Homebrew n'est qu'un relais : il se ré-exécute
-dans `Python.framework/…/Resources/Python.app`, dont l'`Info.plist` annonce
-« Python » et une fusée. Toute l'identité venait donc de l'interpréteur.
+macOS identifies a process by the `.app` bundle its executable belongs to.
+Homebrew's `python3.12` is only a relay: it re-executes into
+`Python.framework/…/Resources/Python.app`, whose `Info.plist` announces "Python"
+and a rocket. The whole identity therefore came from the interpreter.
 
-`scripts/make_launcher_bundle.sh` construit le costume qui manquait : une copie
-de ce `Python.app`, sous `~/Library/Application Support/Whisper Toolkit/`, avec
-notre `Info.plist` et notre icône. Même binaire, identité à nous. L'original
-n'est jamais modifié, et le bundle produit garde sa provenance dans
-`Contents/Resources/ORIGINE.txt`.
+`scripts/make_launcher_bundle.sh` builds the costume that was missing: a copy of
+that `Python.app`, under `~/Library/Application Support/Whisper Toolkit/`, with
+our `Info.plist` and our icon. Same binary, our own identity. The original is
+never modified, and the bundle produced keeps its provenance in
+`Contents/Resources/ORIGIN.txt`.
 
-| Ce qu'on voit | Avant | Après |
+| What you see | Before | After |
 |---|---|---|
-| Icône du Dock | fusée Python | **micro** ✅ |
-| Nom du menu, à côté du logo Apple | Python | **Whisper Toolkit** ✅ |
-| Infobulle du Dock, au survol | Python | **Whisper Toolkit** ✅ |
-| Nom du processus (`ps`, moniteur d'activité) | Python | **Whisper Toolkit** ✅ |
+| Dock icon | Python rocket | **microphone** ✅ |
+| Menu name, next to the Apple logo | Python | **Whisper Toolkit** ✅ |
+| Dock tooltip, on hover | Python | **Whisper Toolkit** ✅ |
+| Process name (`ps`, Activity Monitor) | Python | **Whisper Toolkit** ✅ |
 
-Quatre détails décident du résultat, et chacun se venge en silence :
+Four details decide the outcome, and each takes its revenge in silence:
 
-- **`__PYVENV_LAUNCHER__` est vital.** Lancer le binaire du bundle directement
-  court-circuite `venv/bin/python` : plus de streamlit, plus de pywebview. Cette
-  variable — celle-là même dont le relais de Homebrew se sert pour survivre à sa
-  ré-exécution — remet l'interpréteur dans le venv. C'est l'applet qui la pose.
-- **C'est le nom de fichier du bundle que le Dock affiche**, pas `CFBundleName`.
-  Un bundle nommé `WhisperToolkitLauncher.app` donne une infobulle
-  « WhisperToolkitLauncher », `Info.plist` impeccable ou non. D'où
-  `Whisper Toolkit.app`, à l'identique.
-- **Renommer l'exécutable interne** fait suivre le nom du processus dans `ps` et
-  le moniteur d'activité, que l'`Info.plist` seul ne change pas.
-- **Il faut resigner.** Retoucher l'`Info.plist` d'un binaire signé invalide le
-  sceau, et macOS refuse alors de lancer le bundle.
+- **`__PYVENV_LAUNCHER__` is vital.** Running the bundle's binary directly
+  bypasses `venv/bin/python`: no more streamlit, no more pywebview. That
+  variable — the very one Homebrew's relay uses to survive its own re-execution
+  — puts the interpreter back in the venv. The applet is what sets it.
+- **What the Dock displays is the bundle's file name**, not `CFBundleName`. A
+  bundle named `WhisperToolkitLauncher.app` gives a "WhisperToolkitLauncher"
+  tooltip, immaculate `Info.plist` or not. Hence `Whisper Toolkit.app`, spelled
+  identically.
+- **Renaming the inner executable** makes the process name follow in `ps` and
+  Activity Monitor, which the `Info.plist` alone does not change.
+- **It has to be re-signed.** Editing the `Info.plist` of a signed binary breaks
+  the seal, and macOS then refuses to launch the bundle.
 
-`set_dock_identity()`, dans `launch_desktop.py`, fait double emploi une fois
-l'app lancée par l'applet — mais reste utile en développement, quand on lance
-`python launch_desktop.py` depuis un terminal, sans passer par le bundle.
+`set_dock_identity()`, in `launch_desktop.py`, is redundant once the app is
+launched by the applet — but stays useful in development, when running
+`python launch_desktop.py` from a terminal, without going through the bundle.
 
-**Une seule tuile apparaît dans le Dock**, et cela tient au script de l'applet
-plus qu'au bundle. Un applet Automator vit aussi longtemps que son script :
-tant qu'il attendait la fin de Python, il occupait sa propre tuile en plus de
-celle de l'app. Il lance donc désormais Python en arrière-plan, puis se retire
-dès que Streamlit répond.
+**A single tile appears in the Dock**, and that owes more to the applet's script
+than to the bundle. An Automator applet lives as long as its script: while it
+waited for Python to finish, it occupied its own tile on top of the app's. It
+therefore now launches Python in the background, then withdraws as soon as
+Streamlit answers.
 
-#### L'app Automator
+#### The Automator app
 
-`Whisper Toolkit.app` n'est pas versionnée ici — c'est un applet Automator qui
-vit dans `/Applications`. Pour la recréer, construire d'abord le bundle :
+`Whisper Toolkit.app` is not versioned here — it is an Automator applet living
+in `/Applications`. To recreate it, first build the bundle:
 
 ```bash
 ./scripts/make_launcher_bundle.sh
 ```
 
-puis Automator › Application › action *Exécuter un script Shell*, shell
-`/bin/zsh`, avec exactement ce contenu :
+then Automator › Application › *Run Shell Script* action, shell `/bin/zsh`, with
+exactly this content:
 
 ```bash
 cd ~/Code/whisper-toolkit
 
-LANCEUR="$HOME/Library/Application Support/Whisper Toolkit/Whisper Toolkit.app/Contents/MacOS/Whisper Toolkit"
-JOURNAL="$HOME/Library/Logs/WhisperToolkit.log"
+LAUNCHER="$HOME/Library/Application Support/Whisper Toolkit/Whisper Toolkit.app/Contents/MacOS/Whisper Toolkit"
+LOG="$HOME/Library/Logs/WhisperToolkit.log"
 
-mkdir -p "$(dirname "$JOURNAL")"
-echo "=== $(date) ===" > "$JOURNAL"
+mkdir -p "$(dirname "$LOG")"
+echo "=== $(date) ===" > "$LOG"
 
-__PYVENV_LAUNCHER__="$PWD/venv/bin/python" nohup "$LANCEUR" launch_desktop.py >> "$JOURNAL" 2>&1 &
+__PYVENV_LAUNCHER__="$PWD/venv/bin/python" nohup "$LAUNCHER" launch_desktop.py >> "$LOG" 2>&1 &
 PID=$!
 disown
 
 for _ in {1..80}; do
     sleep 0.25
     if ! kill -0 $PID 2>/dev/null; then
-        { tail -n 3 "$JOURNAL"; echo; echo "Journal complet : $JOURNAL"; } >&2
+        { tail -n 3 "$LOG"; echo; echo "Full log: $LOG"; } >&2
         exit 1
     fi
     curl -sf -m 1 http://localhost:8501/_stcore/health >/dev/null 2>&1 && exit 0
@@ -211,693 +210,685 @@ done
 exit 0
 ```
 
-La boucle n'est pas décorative. Rendre la main aussitôt après le `&` rendrait
-tout échec au démarrage parfaitement muet : ni terminal, ni dialogue. L'applet
-surveille donc jusqu'à ce que Streamlit réponde — l'app est visible, il n'a plus
-lieu d'être — ou que le processus meure, seul cas où il a quelque chose à dire.
+The loop is not decorative. Returning immediately after the `&` would make any
+startup failure perfectly mute: no terminal, no dialog. The applet therefore
+watches until Streamlit answers — the app is visible, it has no further reason
+to exist — or until the process dies, the only case where it has something to
+say.
 
-**Le couple « message sur stderr + `exit 1` » est ce qui déclenche la boîte de
-dialogue d'Automator**, et c'est la seule qui s'affiche à coup sûr. Un
-`display alert` par osascript demanderait à l'applet l'autorisation de piloter
-System Events, qu'il n'a pas : il échoue en silence, sans rien dessiner et sans
-rien signaler. Essayé, et abandonné pour cette raison. Symétriquement, sortir
-avec un code non nul quand tout va bien ferait afficher à Automator une boîte au
-message vide.
+**The pairing of "message on stderr + `exit 1`" is what triggers Automator's
+dialog box**, and that is the only one guaranteed to show. A `display alert` via
+osascript would require the applet's permission to drive System Events, which it
+does not have: it fails in silence, drawing nothing and reporting nothing.
+Tried, and abandoned for that reason. Symmetrically, exiting with a non-zero
+code when all is well would make Automator show a box with an empty message.
 
-**En cas de problème au lancement, tout est dans
-`~/Library/Logs/WhisperToolkit.log`** — la sortie complète de Python et de
-Streamlit, réécrite à chaque lancement. Le dialogue n'en montre que les trois
-dernières lignes.
+**When something goes wrong at launch, everything is in
+`~/Library/Logs/WhisperToolkit.log`** — the full output of Python and Streamlit,
+rewritten on every launch. The dialog only shows its last three lines.
 
-Le bundle est à reconstruire après chaque mise à jour de Python par Homebrew :
-le binaire copié pointe vers la version exacte du framework, qu'un `brew
-upgrade` déplace.
+The bundle has to be rebuilt after every Homebrew update of Python: the copied
+binary points at the exact framework version, which a `brew upgrade` moves.
 
-Son icône se régénère avec `./scripts/make_app_icon.sh --apply` (voir les
-pièges macOS documentés en tête du script). Deux détails valent d'être notés si
-tu modifies l'applet à la main plutôt que par Automator : le bundle est signé
-ad-hoc, donc toute retouche de `Contents/` impose de resigner
-(`codesign --force --sign -`) ; et `Contents/document.wflow` est signé comme
-objet à part, dont les xattrs `com.apple.cs.*` doivent être retirés avant de
-resigner, sans quoi la vérification échoue sur ce sous-composant.
+Its icon is regenerated with `./scripts/make_app_icon.sh --apply` (see the macOS
+traps documented at the top of the script). Two details are worth noting if you
+edit the applet by hand rather than through Automator: the bundle is ad-hoc
+signed, so any edit to `Contents/` requires re-signing
+(`codesign --force --sign -`); and `Contents/document.wflow` is signed as a
+separate object, whose `com.apple.cs.*` xattrs must be removed before
+re-signing, otherwise verification fails on that subcomponent.
 
 ### Options
 
 | Option | `transcribe` | `batch` | `youtube` | Effet |
 |---|:---:|:---:|:---:|---|
-| `--diarize` | ✅ | ✅ | ✅ | identifier les locuteurs (whisperx) au lieu d'une simple transcription |
-| `--num-speakers N` | ✅ | ✅ | ✅ | nombre exact de locuteurs, si connu (avec `--diarize`) |
-| `--language fr` | ✅ | ✅ | ✅ | forcer la langue — par défaut elle est **détectée**, et la forcer à tort produit une traduction silencieuse (voir [Langue](#langue--détectée-jamais-forcée-par-défaut)) |
-| `--summarize` | ✅ | ✅ | ✅ | enchaîner un résumé via l'API Claude — **seule option payante** |
-| `--summary-model`, `--summary-style` | ✅ | ✅ | ✅ | modèle et style du résumé enchaîné |
-| `--force` | — | ✅ | — | retraiter ce qui existe déjà, résumés compris |
+| `--diarize` | ✅ | ✅ | ✅ | identify speakers (whisperx) instead of a plain transcription |
+| `--num-speakers N` | ✅ | ✅ | ✅ | exact number of speakers, if known (with `--diarize`) |
+| `--language fr` | ✅ | ✅ | ✅ | force the language — by default it is **detected**, and forcing it wrongly produces a silent translation (see [Language](#language-detected-never-forced-by-default)) |
+| `--summarize` | ✅ | ✅ | ✅ | chain a summary via the Claude API — **the only paid option** |
+| `--summary-model`, `--summary-style` | ✅ | ✅ | ✅ | model and style of the chained summary |
+| `--force` | — | ✅ | — | reprocess what already exists, summaries included |
 
-La sous-commande `summarize` prend `--model` et `--style` (mêmes valeurs, sans
-le préfixe : elle ne fait que ça).
+The `summarize` subcommand takes `--model` and `--style` (same values, without
+the prefix: that is all it does).
 
 ```bash
-# transcription + locuteurs + résumé, en une seule commande
-python src/cli.py transcribe reunion.wav --diarize --num-speakers 3 --summarize
+# transcription + speakers + summary, in a single command
+python src/cli.py transcribe meeting.wav --diarize --num-speakers 3 --summarize
 
-# un dossier entier, résumé de chaque fichier, en reprenant là où on s'était arrêté
-python src/cli.py batch mes-cours/ --summarize
+# a whole folder, a summary of each file, resuming where it stopped
+python src/cli.py batch my-lectures/ --summarize
 
-# résumé sur mesure d'une transcription déjà produite
-python src/cli.py summarize output/cours.txt --style "en trois puces"
+# a tailored summary of an already-produced transcript
+python src/cli.py summarize output/lecture.txt --style "in three bullets"
 ```
 
-Code de sortie `0` si tout s'est bien passé, `1` sinon — y compris quand un seul
-fichier d'un lot a échoué.
+Exit code `0` if everything went well, `1` otherwise — including when a single
+file in a batch failed.
 
-### Pourquoi `python src/cli.py` et pas une commande `whisper-toolkit` installée
+### Why `python src/cli.py` and not an installed `whisper-toolkit` command
 
-Le CLI aurait pu être exposé comme un exécutable (`pip install -e .` plus un
-`entry_point` dans un `pyproject.toml`), pour taper `whisper-toolkit transcribe
-cours.m4a`. Ce n'est **pas** fait, pour trois raisons :
+The CLI could have been exposed as an executable (`pip install -e .` plus an
+`entry_point` in a `pyproject.toml`), to type `whisper-toolkit transcribe
+lecture.m4a`. That is **not** done, for three reasons:
 
-- **Les modules de `src/` s'importent à plat** (`from transcribe import …`), ce
-  qui fonctionne parce que `python src/cli.py` place `src/` en tête de
-  `sys.path`. Un paquet installable demanderait soit de convertir les six
-  fichiers en imports de paquet — un refactor de code qui marche, pour zéro gain
-  fonctionnel — soit de publier `transcribe`, `batch`, `summarize` et `youtube`
-  comme modules **de premier niveau** dans le `site-packages` du venv. Ces noms
-  sont trop génériques pour ne pas entrer en collision un jour.
-- **Le gain se limite à quelques caractères.** Le venv doit être activé dans les
-  deux cas : une commande installée ne dispense pas de `source venv/bin/activate`.
-- **`output/` est relatif au répertoire courant.** Une commande installée invite
-  à lancer le toolkit depuis n'importe où, et donc à éparpiller les
-  transcriptions dans autant de dossiers `output/` que de répertoires de
-  travail. Aujourd'hui la convention est simple : on lance depuis la racine du
-  dépôt.
+- **The `src/` modules import flat** (`from transcribe import …`), which works
+  because `python src/cli.py` puts `src/` at the front of `sys.path`. An
+  installable package would require either converting the six files to package
+  imports — a refactor of working code, for zero functional gain — or publishing
+  `transcribe`, `batch`, `summarize` and `youtube` as **top-level** modules in
+  the venv's `site-packages`. Those names are too generic not to collide one day.
+- **The gain amounts to a few characters.** The venv has to be activated either
+  way: an installed command does not spare you `source venv/bin/activate`.
+- **`output/` is relative to the current directory.** An installed command
+  invites you to run the toolkit from anywhere, and therefore to scatter
+  transcripts across as many `output/` folders as working directories. Today the
+  convention is simple: you run from the repository root.
 
-Pour raccourcir la ligne sans rien installer, un alias suffit :
+To shorten the line without installing anything, an alias is enough:
 
 ```bash
 alias wt="$PWD/venv/bin/python $PWD/src/cli.py"
 ```
 
-La question se reposera si le toolkit doit être distribué à quelqu'un d'autre.
-Ce sera alors un vrai paquet (`whisper_toolkit/` avec des imports de paquet),
-pas un `entry_point` posé par-dessus la structure actuelle.
+The question will come back if the toolkit has to be distributed to someone
+else. It will then be a real package (`whisper_toolkit/` with package imports),
+not an `entry_point` laid on top of the current structure.
 
-## Fonctionnalités prévues
+## Planned features
 
-- **Transcription locale** via [`mlx-whisper`](https://github.com/ml-explore/mlx-examples) (optimisé Apple Silicon)
-- **Diarisation** (identification des locuteurs) via [`whisperx`](https://github.com/m-bain/whisperX)
-- **Batch** : traitement d'un dossier entier
-- **Surveillance de dossier** : transcription automatique des nouveaux fichiers
-- **YouTube** : transcription directe depuis une URL via [`yt-dlp`](https://github.com/yt-dlp/yt-dlp)
-- **Résumé automatique** de la transcription via l'API Claude
-- Le tout dans un **CLI unifié** (`argparse`), doublé d'une **interface web**
-  (Streamlit) qui appelle exactement le même code — affichable dans un
-  navigateur ou dans une **fenêtre native** (`launch_desktop.py`)
+- **Local transcription** via [`mlx-whisper`](https://github.com/ml-explore/mlx-examples) (optimised for Apple Silicon)
+- **Diarization** (speaker identification) via [`whisperx`](https://github.com/m-bain/whisperX)
+- **Batch**: processing a whole folder
+- **Folder watching**: automatic transcription of new files
+- **YouTube**: direct transcription from a URL via [`yt-dlp`](https://github.com/yt-dlp/yt-dlp)
+- **Automatic summarization** of the transcript via the Claude API
+- All of it in a **unified CLI** (`argparse`), doubled by a **web interface**
+  (Streamlit) that calls exactly the same code — displayable in a browser or in
+  a **native window** (`launch_desktop.py`)
 
 ## Structure
 
 ```
 whisper-toolkit/
-├── CLAUDE.md          # guidelines de dev + contexte projet
+├── CLAUDE.md          # dev guidelines + project context
 ├── README.md
-├── app.py             # interface web Streamlit (présentation seule)
-├── launch_desktop.py  # même interface, dans une fenêtre native (pywebview)
+├── app.py             # Streamlit web interface (presentation only)
+├── launch_desktop.py  # same interface, in a native window (pywebview)
 ├── requirements.txt
 ├── .gitignore
-├── .env               # HF_TOKEN pour la diarisation (non versionné)
-├── .nltk_data/        # cache NLTK local au projet (non versionné, régénérable)
-├── venv/              # environnement virtuel (non versionné)
-├── test-audio/        # échantillons de test (ignoré, sauf la fixture synthétique)
-├── output/            # transcriptions produites (non versionné)
-├── assets/            # icône de l'app Automator (.icns + PNG source)
-├── scripts/           # outillage hors pipeline — icône, bundle de lancement
+├── .env               # HF_TOKEN for diarization (not versioned)
+├── .nltk_data/        # project-local NLTK cache (not versioned, regenerable)
+├── venv/              # virtual environment (not versioned)
+├── test-audio/        # test samples (ignored, except the synthetic fixture)
+├── output/            # produced transcripts (not versioned)
+├── assets/            # Automator app icon (.icns + source PNG)
+├── scripts/           # tooling outside the pipeline — icon, launcher bundle
 ├── src/
-│   ├── cli.py         # CLI unifié — point d'entrée, orchestration seule
-│   ├── transcribe.py  # transcription simple (mlx-whisper)
-│   ├── diarize.py     # transcription + locuteurs (whisperx)
-│   ├── batch.py       # traitement d'un dossier entier
-│   ├── youtube.py     # transcription depuis une URL (yt-dlp)
-│   ├── summarize.py   # résumé d'une transcription (API Claude)
-│   └── ffmpeg_path.py # localisation de ffmpeg, hors PATH si besoin
-└── tests/             # tests (vide pour l'instant)
+│   ├── cli.py         # unified CLI — entry point, orchestration only
+│   ├── transcribe.py  # plain transcription (mlx-whisper)
+│   ├── diarize.py     # transcription + speakers (whisperx)
+│   ├── batch.py       # processing a whole folder
+│   ├── youtube.py     # transcription from a URL (yt-dlp)
+│   ├── summarize.py   # summarizing a transcript (Claude API)
+│   └── ffmpeg_path.py # locating ffmpeg, outside PATH if need be
+└── tests/             # tests (empty for now)
 ```
 
 ## Architecture
 
-Le projet a **deux pipelines audio distincts**, qui ne partagent ni backend ni
-modèle. Ce n'est pas un accident : chacun est le meilleur outil pour son usage.
+The project has **two distinct audio pipelines**, sharing neither backend nor
+model. That is not an accident: each is the best tool for its job.
 
 | | `transcribe.py` | `diarize.py` |
 |---|---|---|
 | Backend | `mlx-whisper` | `whisperx` → `faster-whisper` |
 | Runtime | MLX | CTranslate2 |
-| Matériel | **GPU Metal** (Apple Silicon) | **CPU uniquement** |
-| Modèle par défaut | `mlx-community/whisper-large-v3-mlx` | `large-v3` (CTranslate2) |
-| Sortie | texte brut | segments `{start, end, text, speaker}` |
-| Identifiants requis | aucun | token Hugging Face |
+| Hardware | **Metal GPU** (Apple Silicon) | **CPU only** |
+| Default model | `mlx-community/whisper-large-v3-mlx` | `large-v3` (CTranslate2) |
+| Output | plain text | `{start, end, text, speaker}` segments |
+| Credentials required | none | Hugging Face token |
 
-**Pourquoi deux backends.** CTranslate2, sur lequel repose whisperx, n'a pas de
-support Metal ni MPS : le chemin diarisation tourne donc entièrement sur CPU,
-sans l'accélération dont bénéficie `transcribe.py`. À l'inverse, mlx-whisper
-n'offre ni alignement au mot ni diarisation. Utilise `transcribe.py` quand tu
-veux juste le texte, vite ; `diarize.py` quand il faut savoir qui parle.
+**Why two backends.** CTranslate2, which whisperx rests on, has no Metal or MPS
+support: the diarization path therefore runs entirely on CPU, without the
+acceleration `transcribe.py` enjoys. Conversely, mlx-whisper offers neither
+word-level alignment nor diarization. Use `transcribe.py` when you just want the
+text, fast; `diarize.py` when you need to know who is speaking.
 
-Les deux modules sont indépendants : ni import croisé, ni état partagé.
-`diarize.py` refait sa propre transcription plutôt que de réutiliser celle de
-`transcribe.py`, car l'alignement au mot exige les sorties internes de
-faster-whisper.
+The two modules are independent: no cross-imports, no shared state.
+`diarize.py` redoes its own transcription rather than reusing `transcribe.py`'s,
+because word-level alignment requires faster-whisper's internal outputs.
 
-### Langue : détectée, jamais forcée par défaut
+### Language: detected, never forced by default
 
-`transcribe_file()` prend `language: str | None = None` : Whisper détecte la
-langue. Les trois CLI exposent `--language` pour la forcer (`fr`, `en`, …), sans
-effet en diarisation où whisperx détecte de son côté, fichier par fichier.
+`transcribe_file()` takes `language: str | None = None`: Whisper detects the
+language. The three CLIs expose `--language` to force it (`fr`, `en`, …), with
+no effect when diarizing, where whisperx detects on its own, file by file.
 
-**Forcer une langue ne produit jamais d'erreur — ça produit une traduction.**
-Whisper à qui on impose une langue qui n'est pas celle de l'audio rend un texte
-dans la langue demandée, fluide et plausible, sans le moindre signal. Rien dans
-la sortie ne distingue une transcription d'une traduction inventée. C'est le
-défaut qu'a révélé la première vidéo YouTube anglaise, transcrite en français ;
-la fixture française avec `--language en` le reproduit à l'identique en sens
-inverse (voir Test 8).
+**Forcing a language never produces an error — it produces a translation.**
+Whisper, given a language that is not the audio's, returns text in the requested
+language, fluent and plausible, without the slightest signal. Nothing in the
+output distinguishes a transcription from an invented translation. That is the
+flaw the first English YouTube video revealed, transcribed into French; the
+French fixture with `--language en` reproduces it identically in the other
+direction (see Test 8).
 
-Un défaut codé en dur à `fr` n'était donc pas tenable pour un toolkit qui avale
-des URL YouTube et des dossiers hétérogènes. Et il ne coûte rien de l'enlever :
-**texte strictement identique** sur les 5 fixtures françaises, pour un surcoût
-**fixe** d'environ 0,3 s — une passe sur la première fenêtre, pas
-proportionnelle à la durée (0,5 % sur un fichier de 76 s).
+A default hard-coded to `fr` was therefore untenable for a toolkit that swallows
+YouTube URLs and heterogeneous folders. And removing it costs nothing:
+**strictly identical text** across the 5 French fixtures, for a **fixed**
+overhead of about 0.3 s — one pass over the first window, not proportional to
+the duration (0.5% on a 76 s file).
 
-### `cli.py` — une commande, quatre sous-commandes
+### `cli.py` — one command, four subcommands
 
-`cli.py` est une couche d'orchestration au même titre que `batch.py` : il ne
-contient **aucune** logique de transcription, de diarisation, de téléchargement
-ni de résumé. Chaque sous-commande appelle les fonctions des modules qui la
-portent, puis affiche ce qu'elles ont écrit.
+`cli.py` is an orchestration layer just like `batch.py`: it contains **no**
+transcription, diarization, download or summarization logic. Each subcommand
+calls the functions of the modules that carry it, then displays what they wrote.
 
 ```
-transcribe FICHIER ──> transcribe_file() | diarize_file()  ──> output/{nom}[_diarized].txt ─┐
-batch DOSSIER      ──> process_folder()      (délègue fichier par fichier)                  ├─> --summarize
-youtube URL        ──> transcribe_youtube()  (yt-dlp puis délégation)                       ─┘      │
-                                                                                                   ▼
-summarize FICHIER.txt ─────────────────────> summarize_text()  ──────────────> output/{nom}_summary.txt
+transcribe FILE  ──> transcribe_file() | diarize_file()  ──> output/{name}[_diarized].txt ─┐
+batch FOLDER     ──> process_folder()      (delegates file by file)                        ├─> --summarize
+youtube URL      ──> transcribe_youtube()  (yt-dlp then delegation)                        ─┘     │
+                                                                                                  ▼
+summarize FILE.txt ───────────────────────> summarize_text()  ─────────────> output/{name}_summary.txt
 ```
 
-**`argparse` avec des sous-parseurs, pas de nouvelle dépendance.** Quatre
-sous-commandes et une dizaine d'options : `click` ou `typer` n'apporteraient
-ici qu'un peu de sucre syntaxique, contre une dépendance de plus à installer et
-à suivre. Les options communes aux trois entrées audio sont d'ailleurs
-déclarées **une seule fois**, dans un parseur parent (`parents=[audio]`) — il
-n'y a donc pas non plus la duplication à laquelle `click` remédierait.
+**`argparse` with subparsers, no new dependency.** Four subcommands and a dozen
+options: `click` or `typer` would bring nothing here but a little syntactic
+sugar, against one more dependency to install and follow. The options common to
+the three audio inputs are moreover declared **only once**, in a parent parser
+(`parents=[audio]`) — so there is not even the duplication `click` would remedy.
 
-**Les modules frères sont importés dans les fonctions, pas en tête de fichier.**
-Importer `youtube` tire yt-dlp, et `diarize`/`batch` tirent nltk : **0,72 s
-payées à chaque lancement**, y compris pour un `--help` ou un résumé qui n'en
-ont que faire. Avec les imports paresseux, `--help` répond en **0,03 s**. C'est
-le même raisonnement que pour `mlx_whisper`, `whisperx` et `anthropic` ailleurs
-dans le toolkit, appliqué un cran plus haut.
+**Sibling modules are imported inside the functions, not at the top of the
+file.** Importing `youtube` pulls in yt-dlp, and `diarize`/`batch` pull in nltk:
+**0.72 s paid on every launch**, including for a `--help` or a summary that have
+no use for it. With lazy imports, `--help` answers in **0.03 s**. Same reasoning
+as for `mlx_whisper`, `whisperx` and `anthropic` elsewhere in the toolkit,
+applied one level up.
 
-**`--summarize` relit le fichier écrit plutôt que le texte en mémoire.** Après
-avoir délégué la transcription, `cli.py` relit la sortie et la passe à
-`summarize_text()` — exactement le chemin de la sous-commande `summarize`. Le
-format `[SPEAKER_XX] texte` garde ainsi une définition unique, dans
-`diarize.py`, au lieu d'être reconstruit ici pour l'affichage.
+**`--summarize` re-reads the written file rather than the in-memory text.**
+After delegating the transcription, `cli.py` re-reads the output and passes it to
+`summarize_text()` — exactly the `summarize` subcommand's path. The
+`[SPEAKER_XX] text` format thus keeps a single definition, in `diarize.py`,
+instead of being rebuilt here for display.
 
-**En lot, le résumé suit la même reprise que la transcription.** `batch
---summarize` résume les fichiers traités **et** ceux sautés parce que leur
-transcription existait déjà, mais saute ceux dont le `_summary.txt` est déjà
-présent — sauf `--force`. Sans la première règle, reprendre un lot interrompu ne
-résumerait que la partie restante ; sans la seconde, chaque relance repaierait
-tous les appels à l'API.
+**In a batch, summarization follows the same resume rule as transcription.**
+`batch --summarize` summarizes the files processed **and** those skipped because
+their transcript already existed, but skips those whose `_summary.txt` is
+already present — unless `--force`. Without the first rule, resuming an
+interrupted batch would only summarize the remaining part; without the second,
+every rerun would pay for all the API calls again.
 
-**Ce que le CLI unifié n'expose pas.** `--model` (modèle Whisper) et
-`--diarization-model` restent accessibles via `python src/transcribe.py` et
-`python src/diarize.py`. Ce sont des réglages rares : les exposer sur chaque
-sous-commande aurait allongé l'aide sans servir l'usage courant.
+**What the unified CLI does not expose.** `--model` (Whisper model) and
+`--diarization-model` stay reachable through `python src/transcribe.py` and
+`python src/diarize.py`. These are rare settings: exposing them on every
+subcommand would have lengthened the help without serving everyday use.
 
-**Trois ajustements dans les modules existants**, pour que `cli.py` n'ait rien à
-dupliquer : `summarize.summary_path()` (pendant de `transcript_path()`, sans
-lequel on ne peut pas savoir qu'un résumé existe déjà), `batch.report_summary()`
-(le bilan du lot sort de `main()` pour être appelable des deux côtés), et
-`transcribe_youtube()` qui retourne désormais `(texte, chemin de sortie)` — le
-nom du fichier produit dépend du titre de la vidéo, connu seulement là.
+**Three adjustments in the existing modules**, so `cli.py` has nothing to
+duplicate: `summarize.summary_path()` (counterpart of `transcript_path()`,
+without which there is no telling that a summary already exists),
+`batch.report_summary()` (the batch report moves out of `main()` to be callable
+from both sides), and `transcribe_youtube()`, which now returns `(text, output
+path)` — the name of the file produced depends on the video title, known only
+there.
 
-### `app.py` — interface web, présentation seule
+### `app.py` — web interface, presentation only
 
-Pendant exact de `cli.py`, dans le navigateur : **aucune** logique de
-transcription, de diarisation, de téléchargement ni de résumé n'y est écrite.
-Les deux points d'entrée coexistent et appellent les mêmes fonctions, donc une
-correction faite dans `src/` vaut pour les deux sans rien recopier.
+Exact counterpart of `cli.py`, in the browser: **no** transcription,
+diarization, download or summarization logic is written there. The two entry
+points coexist and call the same functions, so a fix made in `src/` holds for
+both without copying anything.
 
 ```
-onglet Fichier unique ──> fichier reçu écrit dans un dossier temporaire
-                     ──> transcribe_file() | diarize_file()   ──> output/{nom}[_diarized].txt
-onglet Dossier        ──> process_folder()                    ──> tableau succès / sautés / échecs
-onglet YouTube        ──> transcribe_youtube()                ──> idem
-                                     │
-                     case « Résumer » ──> summarize_text()    ──> output/{nom}_summary.txt
+Single file tab ──> received file written into a temporary folder
+                ──> transcribe_file() | diarize_file()   ──> output/{name}[_diarized].txt
+Folder tab      ──> process_folder()                     ──> succeeded / skipped / failed table
+YouTube tab     ──> transcribe_youtube()                 ──> same
+                                  │
+              "Summarize" box ──> summarize_text()       ──> output/{name}_summary.txt
 ```
 
-**Le nom du fichier reçu est conservé**, parce que c'est lui qui donne son nom à
-la sortie : un `cours.m4a` déposé dans le navigateur produit `output/cours.txt`,
-comme en CLI. Il est réduit à son basename avant écriture — il vient du
-navigateur, donc de l'extérieur, et un nom comme `../../x.wav` écrirait ailleurs.
-L'audio lui-même atterrit dans un dossier temporaire effacé aussitôt : seule la
-transcription survit.
+**The received file's name is preserved**, because it is what gives the output
+its name: a `lecture.m4a` dropped in the browser produces `output/lecture.txt`,
+as in the CLI. It is reduced to its basename before writing — it comes from the
+browser, hence from the outside, and a name like `../../x.wav` would write
+elsewhere. The audio itself lands in a temporary folder erased right away: only
+the transcript survives.
 
-**Le champ « dossier » est confiné à une racine autorisée.** C'est le seul
-endroit de l'app où l'utilisateur tape un chemin libre. Sans borne, il suffirait
-d'exposer l'app sur le réseau — ce que Streamlit fait par défaut, voir
-l'avertissement plus haut — pour laisser n'importe qui lister et transcrire
-n'importe quel dossier de la machine. La racine est celle du dépôt ;
-`WHISPER_TOOLKIT_ROOT` l'élargit en connaissance de cause :
+**The "folder" field is confined to an allowed root.** It is the only place in
+the app where the user types a free path. With no bound, merely exposing the app
+on the network — which Streamlit does by default, see the warning above — would
+let anyone list and transcribe any folder on the machine. The root is the
+repository's; `WHISPER_TOOLKIT_ROOT` widens it deliberately:
 
 ```bash
-WHISPER_TOOLKIT_ROOT=~/Documents/cours streamlit run app.py
+WHISPER_TOOLKIT_ROOT=~/Documents/courses streamlit run app.py
 ```
 
-La vérification passe par `os.path.realpath`, qui résout `..` **et** les liens
-symboliques : ni `/etc`, ni `../../../../etc`, ni un lien posé dans le dépôt ne
-sortent de la racine (vérifié, Test 11). L'usage prévu reste local ; le
-garde-fou est posé maintenant plutôt qu'après.
+The check goes through `os.path.realpath`, which resolves `..` **and** symbolic
+links: neither `/etc`, nor `../../../../etc`, nor a link placed in the
+repository leaves the root (verified, Test 11). The intended use stays local;
+the guard rail is put in now rather than later.
 
-**Les options sont déclarées une fois pour les trois onglets** qui transcrivent
-un fichier, comme le parseur parent `audio` de `cli.py` le fait pour les trois
-sous-commandes. Les avertissements que le CLI imprime deviennent ici du
-grisage : cocher « Identifier les locuteurs » désactive le champ langue, que
-whisperx ignorerait. *Dictée rapide* reste en dehors : ni diarisation ni résumé
-n'y ont de sens, elle ne reprend que le sélecteur de langue.
+**The options are declared once for the three tabs** that transcribe a file, as
+`cli.py`'s parent `audio` parser does for the three subcommands. The warnings
+the CLI prints become greying out here: ticking "Identify speakers" disables the
+language field, which whisperx would ignore. *Quick dictation* stays outside:
+neither diarization nor summarization makes sense there, it only carries the
+language selector over.
 
-**L'audio dicté ne touche le disque que dans le dossier temporaire du système.**
-`_transcribe_recording()` l'y écrit — mlx-whisper décode le fichier par ffmpeg,
-ce détour n'est pas évitable — puis l'efface dans un `finally`, succès comme
-échec. Rien n'est laissé au ramasse-miettes, qui ne promet ni le moment ni le
-fait de passer. Vérifié : après transcription, aucun fichier du dépôt n'a été
-modifié et aucun `.wav` ne subsiste dans le dossier temporaire.
+**Dictated audio touches the disk only in the system temporary folder.**
+`_transcribe_recording()` writes it there — mlx-whisper decodes the file through
+ffmpeg, that detour is unavoidable — then erases it in a `finally`, on success
+as on failure. Nothing is left to the garbage collector, which promises neither
+when it runs nor that it will. Verified: after a transcription, no file in the
+repository had been modified and no `.wav` remained in the temporary folder.
 
-**La langue est un menu déroulant, pas un champ libre.** C'est la conséquence
-directe du défaut documenté plus bas : une langue erronée ne produit pas une
-erreur mais une traduction. Un champ texte acceptait `langue random` sans
-broncher ; le sélecteur ne peut rendre que l'une des 30 entrées de la constante
-`LANGUAGES`, et `LANGUAGES[label]` lèverait un `KeyError` bruyant plutôt que de
-laisser passer autre chose. Taper filtre la liste — `Esp` ne laisse
-qu'`Espagnol` — sans jamais permettre d'en sortir.
+**The language is a dropdown, not a free-text field.** That is a direct
+consequence of the flaw documented below: a wrong language produces not an error
+but a translation. A text field accepted `random language` without flinching;
+the selector can only return one of the 30 entries of the `LANGUAGES` constant,
+and `LANGUAGES[label]` would raise a loud `KeyError` rather than let anything
+else through. Typing filters the list — `Spa` leaves only `Spanish` — without
+ever allowing you out of it.
 
-C'est un sous-ensemble courant, pas les 100 langues que Whisper connaît : la
-liste complète n'est lisible que dans `mlx_whisper.tokenizer.LANGUAGES`, qui ne
-s'installe que sur Apple Silicon et coûte 0,8 s à l'import. La lire de là
-rendrait l'app inaffichable ailleurs, pour un menu déroulant. Les 29 codes ont
-donc été recopiés, puis **vérifiés un à un** contre la liste officielle. Le CLI,
-lui, reste ouvert à n'importe quel code Whisper via `--language` — c'est
-l'interface qui restreint, pas le toolkit.
+It is a common subset, not the 100 languages Whisper knows: the full list is
+only readable in `mlx_whisper.tokenizer.LANGUAGES`, which installs only on Apple
+Silicon and costs 0.8 s at import. Reading it from there would make the app
+undisplayable elsewhere, for a dropdown. The 29 codes were therefore copied
+over, then **checked one by one** against the official list. The CLI stays open
+to any Whisper code via `--language` — it is the interface that restricts, not
+the toolkit.
 
-**Ce que l'app réutilise sans le recopier**, au-delà des fonctions de pipeline :
-`cli.summarize_batch()` pour la règle de résumé d'un lot — résumer aussi les
-fichiers sautés par la reprise, mais pas ceux dont le `_summary.txt` existe déjà
-— et `batch.short_reason()` pour réduire la bannière ffmpeg à une ligne dans le
-tableau. Les deux sont **publiques**, et `summarize_batch()` prend des paramètres
-explicites plutôt que le `Namespace` d'argparse qu'elle lisait quand elle ne
-servait qu'au CLI : c'est le même ajustement que `batch.report_summary()` à
-l'étape 8, pour la même raison — une règle qui vaut pour les deux points d'entrée
-n'a pas à être écrite deux fois, ni à passer par une ligne de commande fabriquée
-pour l'occasion.
+**What the app reuses without copying**, beyond the pipeline functions:
+`cli.summarize_batch()` for the batch summarization rule — also summarize the
+files skipped by the resume logic, but not those whose `_summary.txt` already
+exists — and `batch.short_reason()` to reduce the ffmpeg banner to one line in
+the table. Both are **public**, and `summarize_batch()` takes explicit
+parameters rather than the argparse `Namespace` it read when it only served the
+CLI: the same adjustment as `batch.report_summary()` at step 8, for the same
+reason — a rule that holds for both entry points does not have to be written
+twice, nor go through a command line fabricated for the occasion.
 
-**Les imports lourds restent dans les fonctions**, pour la même raison qu'ailleurs
-et une de plus : Streamlit ré-exécute le script en entier à chaque interaction,
-donc tout ce qui est en tête de fichier est payé à chaque case cochée.
+**Heavy imports stay inside the functions**, for the same reason as elsewhere
+and one more: Streamlit re-executes the whole script on every interaction, so
+anything at the top of the file is paid for on every ticked box.
 
-### `batch.py` — orchestration, pas un troisième pipeline
+### `batch.py` — orchestration, not a third pipeline
 
-`batch.py` **ne contient aucune logique de traitement audio**. Il liste les
-fichiers d'un dossier et délègue, fichier par fichier, à l'un des deux pipelines
-ci-dessus :
+`batch.py` **contains no audio processing logic**. It lists a folder's files and
+delegates, file by file, to one of the two pipelines above:
 
 ```
-dossier ──> list_audio_files()          (filtre sur SUPPORTED_EXTENSIONS)
-        ──> pour chaque fichier :
-              sortie déjà présente ? ──> sauté           (sauf --force)
-              transcribe_file() + save_transcript()            (défaut)
-              diarize_file()    + save_diarized_transcript()   (--diarize)
-        ──> {"success": [...], "failed": [(chemin, erreur), ...], "skipped": [...]}
+folder ──> list_audio_files()          (filters on SUPPORTED_EXTENSIONS)
+       ──> for each file:
+             output already present? ──> skipped        (unless --force)
+             transcribe_file() + save_transcript()            (default)
+             diarize_file()    + save_diarized_transcript()   (--diarize)
+       ──> {"success": [...], "failed": [(path, error), ...], "skipped": [...]}
 ```
 
-Il importe `SUPPORTED_EXTENSIONS` depuis `transcribe.py` au lieu de la
-redéfinir : ajouter un format là-bas le rend disponible ici sans rien toucher.
+It imports `SUPPORTED_EXTENSIONS` from `transcribe.py` instead of redefining it:
+adding a format there makes it available here without touching anything.
 
 **Robustesse aux échecs partiels.** Chaque fichier est traité dans son propre
 `try/except` : un fichier illisible n'interrompt pas le lot. Le résumé final
 liste les échecs avec leur raison, et le processus sort en code 1 si au moins un
 fichier a échoué — pratique pour enchaîner dans un script.
 
-**Reprise : c'est le comportement par défaut.** Avant de traiter un fichier,
-`batch.py` regarde si sa sortie existe déjà dans `output/` ; si oui, il le saute.
-Relancer un lot interrompu ne refait donc que ce qui manque. `--force` retraite
-tout, sortie existante ou non.
+**Resuming: that is the default behaviour.** Before processing a file,
+`batch.py` looks at whether its output already exists in `output/`; if so, it
+skips it. Restarting an interrupted batch therefore only redoes what is missing.
+`--force` reprocesses everything, existing output or not.
 
 ```bash
-python src/batch.py mon-dossier/           # reprise : ne refait que ce qui manque
-python src/batch.py mon-dossier/ --force   # retraite tout
+python src/batch.py my-folder/           # resume: only redoes what is missing
+python src/batch.py my-folder/ --force   # reprocesses everything
 ```
 
-Trois points à connaître :
+Three points to know:
 
-- **Les fichiers sautés sont comptés à part**, dans `"skipped"`, et listés nommément
-  dans le résumé. Ce n'est jamais un skip silencieux : un fichier sauté n'est ni
-  un succès ni un échec, et ne change pas le code de sortie.
-- **La reprise est par mode.** La sortie attendue est `output/{nom}.txt` en
-  transcription et `output/{nom}_diarized.txt` en diarisation : avoir déjà
-  transcrit un fichier ne fait pas sauter sa diarisation, et réciproquement.
-- **Seule la présence du fichier compte, pas son contenu.** Une sortie tronquée
-  par une interruption au milieu d'une écriture sera considérée comme faite ;
-  c'est `--force` (ou la suppression du `.txt`) qui la refait. En contrepartie,
-  un fichier en échec ne produit aucune sortie, donc il est bien retenté au
-  lancement suivant.
+- **Skipped files are counted separately**, under `"skipped"`, and listed by
+  name in the report. It is never a silent skip: a skipped file is neither a
+  success nor a failure, and does not change the exit code.
+- **Resuming is per mode.** The expected output is `output/{name}.txt` when
+  transcribing and `output/{name}_diarized.txt` when diarizing: having already
+  transcribed a file does not skip its diarization, and vice versa.
+- **Only the file's presence counts, not its content.** An output truncated by
+  an interruption mid-write will be considered done; it is `--force` (or
+  deleting the `.txt`) that redoes it. In exchange, a failed file produces no
+  output at all, so it is properly retried on the next run.
 
-Les chemins de sortie viennent de `transcript_path()` et
-`diarized_transcript_path()`, exportés par les modules qui les écrivent.
-`batch.py` ne réimplémente pas la convention de nommage : changer le suffixe
-d'un côté ne peut pas désynchroniser la détection de reprise de l'autre.
+The output paths come from `transcript_path()` and
+`diarized_transcript_path()`, exported by the modules that write them.
+`batch.py` does not reimplement the naming convention: changing a suffix on one
+side cannot desynchronise the resume detection on the other.
 
-**Pas de surveillance continue de dossier.** Un simple traitement de lot couvre
-l'usage réel (« transcrire tous les cours de la semaine d'un coup »). Le mode
-watchdog ne sera ajouté que si le besoin se confirme.
+**No continuous folder watching.** Plain batch processing covers the real usage
+("transcribe all of this week's lectures in one go"). The watchdog mode will
+only be added if the need is confirmed.
 
-### `youtube.py` — téléchargement, puis délégation
+### `youtube.py` — download, then delegate
 
-Comme `batch.py`, ce module ne transcrit rien lui-même : il récupère l'audio
-avec yt-dlp et passe la main.
+Like `batch.py`, this module transcribes nothing itself: it fetches the audio
+with yt-dlp and hands over.
 
 ```
-URL ──> extract_info()      (titre + identifiant, sans télécharger)
-    ──> _safe_stem()        (nom de fichier prévisible)
-    ──> download            (test-audio/{nom}.opus, gitignoré)
-    ──> transcribe_file()   ou  diarize_file()   (--diarize)
-    ──> output/{nom}.txt    ou  output/{nom}_diarized.txt
+URL ──> extract_info()      (title + id, without downloading)
+    ──> _safe_stem()        (predictable file name)
+    ──> download            (test-audio/{name}.opus, gitignored)
+    ──> transcribe_file()   or  diarize_file()   (--diarize)
+    ──> output/{name}.txt   or  output/{name}_diarized.txt
 ```
 
-**Format téléchargé : `.opus`, choisi après mesure.** YouTube sert nativement un
-flux Opus, que yt-dlp extrait en `-acodec copy` — donc **sans ré-encodage**.
-Pour une vidéo d'une minute : **960 Ko en opus contre 11,4 Mo en wav**, où le
-wav impose en plus une passe ffmpeg. `.opus` est déjà dans
-`SUPPORTED_EXTENSIONS`, donc `transcribe_file()` l'accepte tel quel. La
-constante `AUDIO_FORMAT` en tête du module suffit à basculer sur `m4a` ou `wav`.
+**Downloaded format: `.opus`, chosen after measurement.** YouTube natively
+serves an Opus stream, which yt-dlp extracts with `-acodec copy` — so **without
+re-encoding**. For a one-minute video: **960 KB as opus against 11.4 MB as
+wav**, where wav additionally imposes an ffmpeg pass. `.opus` is already in
+`SUPPORTED_EXTENSIONS`, so `transcribe_file()` accepts it as-is. The
+`AUDIO_FORMAT` constant at the top of the module is enough to switch to `m4a` or
+`wav`.
 
-Le détail qui a tranché : à contenu audio identique, **le conteneur n'a aucun
-effet** sur la transcription — un même flux en `.m4a` et en `.wav` donne le même
-texte, au mot près, dans le même temps. Ce qui compte est le **flux source
-choisi chez YouTube**, pas l'extension. Mesures dans le Test 7 ci-dessous.
+The detail that settled it: with identical audio content, **the container has no
+effect** on the transcription — the same stream as `.m4a` and as `.wav` gives
+the same text, word for word, in the same time. What counts is the **source
+stream chosen at YouTube**, not the extension. Measurements in Test 7 below.
 
-**Nommage.** `_safe_stem()` translittère le titre en ASCII et remplace tout le
-reste par `_`. Un titre entièrement non latin, vide, ou fait de ponctuation ne
-laisse rien d'exploitable : on retombe alors sur l'identifiant YouTube. Effet de
-bord utile : un titre comme `../../etc/passwd` devient `etc_passwd`, donc aucune
-écriture hors de `test-audio/`. En contrepartie, **deux vidéos de même titre
-écrivent le même fichier** — c'est le prix d'un nom prévisible.
+**Naming.** `_safe_stem()` transliterates the title to ASCII and replaces
+everything else with `_`. A title that is entirely non-Latin, empty, or made of
+punctuation leaves nothing usable: we then fall back to the YouTube id. A useful
+side effect: a title like `../../etc/passwd` becomes `etc_passwd`, so nothing is
+written outside `test-audio/`. In exchange, **two videos with the same title
+write the same file** — that is the price of a predictable name.
 
-**Langue : détection automatique**, comme partout ailleurs depuis que le défaut
-`fr` a été retiré de `transcribe_file()` — voir « Langue » ci-dessous.
+**Language: auto-detected**, as everywhere else since the `fr` default was
+removed from `transcribe_file()` — see "Language" below.
 
-### `ffmpeg_path.py` — retrouver ffmpeg quand le PATH ne suffit pas
+### `ffmpeg_path.py` — finding ffmpeg when PATH is not enough
 
-Tout le toolkit dépend de ffmpeg : `mlx_whisper` et `whisperx` l'appellent en
-sous-processus pour décoder l'audio, yt-dlp pour extraire la piste. Tous le
-cherchent dans le `PATH` — et c'est exactement là que ça casse.
+The whole toolkit depends on ffmpeg: `mlx_whisper` and `whisperx` call it as a
+subprocess to decode audio, yt-dlp to extract the track. All of them look it up
+in `PATH` — and that is exactly where it breaks.
 
-Un shell interactif charge `~/.zshrc`, donc `/opt/homebrew/bin`. Une app
-Automator, un `launchd`, un raccourci du Finder : non. Le processus hérite d'un
-PATH minimal (`/usr/bin:/bin:…`) où ffmpeg n'est pas, **alors qu'il est installé
-et parfaitement fonctionnel**. D'où une panne qui ne se produit qu'au lancement
-graphique et disparaît dès qu'on relance depuis un terminal — le pire genre de
-bug à diagnostiquer.
+An interactive shell loads `~/.zshrc`, and therefore `/opt/homebrew/bin`. An
+Automator app, a `launchd` job, a Finder shortcut: they do not. The process
+inherits a minimal PATH (`/usr/bin:/bin:…`) with no ffmpeg in it, **even though
+it is installed and works perfectly**. Hence a failure that only happens on a
+graphical launch and disappears as soon as you rerun from a terminal — the worst
+kind of bug to diagnose.
 
-Le module ne fait que du repérage, `shutil.which()` d'abord, emplacements
-Homebrew (Apple Silicon puis Intel) en repli. Le `PATH` reste la source
-d'autorité ; ces chemins sont le filet.
+The module does nothing but look up: `shutil.which()` first, Homebrew locations
+(Apple Silicon then Intel) as a fallback. `PATH` stays the authority; those
+paths are the safety net.
 
-Il est utilisé de **deux façons différentes**, parce que les deux familles
-d'appelants n'offrent pas les mêmes prises :
+It is used in **two different ways**, because the two families of callers do not
+offer the same handles:
 
-| Appelant | Correctif | Pourquoi |
+| Caller | Fix | Why |
 |---|---|---|
-| yt-dlp | `ffmpeg_location` dans les options de téléchargement | il accepte un chemin explicite : on ne dépend plus du tout du PATH |
-| `mlx_whisper`, `whisperx` | `ensure_on_path()` au démarrage d'`app.py` | ils lancent `ffmpeg` par son nom nu, sans paramètre pour le situer — le PATH est la seule prise |
+| yt-dlp | `ffmpeg_location` in the download options | it accepts an explicit path: PATH stops mattering entirely |
+| `mlx_whisper`, `whisperx` | `ensure_on_path()` at `app.py` startup | they launch `ffmpeg` by its bare name, with no parameter to locate it — PATH is the only handle |
 
-À yt-dlp on passe le **dossier** et non le binaire : l'extraction audio réclame
-aussi `ffprobe`, que yt-dlp cherche à côté.
+yt-dlp is given the **directory**, not the binary: audio extraction also needs
+`ffprobe`, which yt-dlp looks for next to it.
 
-`ensure_on_path()` modifie `os.environ["PATH"]`. C'est un effet de bord assumé :
-c'est précisément ce qu'héritent les sous-processus, donc ce qu'il faut réparer.
-L'appel est idempotent. Le précédent existe déjà dans le dépôt — `diarize.py`
-pose `NLTK_DATA` dans l'environnement pour la même raison.
+`ensure_on_path()` modifies `os.environ["PATH"]`. That is a deliberate side
+effect: it is precisely what subprocesses inherit, hence what has to be
+repaired. The call is idempotent. The precedent already exists in the repo —
+`diarize.py` sets `NLTK_DATA` in the environment for the same reason.
 
-**Le correctif est posé dans `app.py`, pas dans `cli.py`.** C'est l'interface web
-qu'on lance depuis une icône ; le CLI part toujours d'un shell, qui a son PATH.
-Si un jour le CLI est lancé depuis Automator, il faudra le même appel — le
-module est là, c'est une ligne.
+**The fix is placed in `app.py`, not in `cli.py`.** It is the web interface you
+launch from an icon; the CLI always starts from a shell, which has its PATH. If
+one day the CLI is launched from Automator, it will need the same call — the
+module is there, it is one line.
 
-Si ffmpeg reste introuvable, l'app le dit franchement au chargement plutôt que de
-laisser l'échec surgir au fond d'une trace, une fois le fichier déposé et le
-modèle chargé.
+If ffmpeg still cannot be found, the app says so plainly at load time rather
+than letting the failure surface at the bottom of a traceback, once the file has
+been dropped and the model loaded.
 
-### `summarize.py` — la seule étape qui sort de la machine
+### `summarize.py` — the only step that leaves the machine
 
-Tout le reste du toolkit tourne en local. `summarize.py` envoie du texte à
-l'API Claude : c'est le seul module qui expose du contenu à un service externe,
-et la seule fonctionnalité qui coûte de l'argent.
+Everything else in the toolkit runs locally. `summarize.py` sends text to the
+Claude API: it is the only module that exposes content to an external service,
+and the only feature that costs money.
 
 ```
-transcription (.txt) ──> summarize_text()   (API Claude)
-                     ──> output/{nom}_summary.txt
+transcript (.txt) ──> summarize_text()   (Claude API)
+                  ──> output/{name}_summary.txt
 ```
 
-**Il prend un fichier texte, jamais de l'audio.** Le résumé est une étape
-séparée qui s'enchaîne après la transcription, pas un mode de plus dans
-`transcribe.py` : on résume un texte déjà produit, éventuellement corrigé à la
-main, sans repayer une transcription.
+**It takes a text file, never audio.** Summarization is a separate step chained
+after transcription, not one more mode inside `transcribe.py`: you summarize an
+already-produced text, possibly corrected by hand, without paying for a
+transcription again.
 
 ```bash
-python src/transcribe.py cours.m4a          # produit output/cours.txt
-python src/summarize.py output/cours.txt    # produit output/cours_summary.txt
+python src/transcribe.py lecture.m4a          # produces output/lecture.txt
+python src/summarize.py output/lecture.txt    # produces output/lecture_summary.txt
 ```
 
-**Clé API.** Elle est lue dans `.env` sous `ANTHROPIC_API_KEY`, même mécanisme
-que `HF_TOKEN` — voir « Clé API Anthropic » plus bas. `load_dotenv()` cherche
-le `.env` à partir du fichier appelant, donc le CLI marche depuis n'importe
-quel répertoire.
+**API key.** It is read from `.env` under `ANTHROPIC_API_KEY`, the same
+mechanism as `HF_TOKEN` — see "Anthropic API key" below. `load_dotenv()` looks
+for the `.env` starting from the calling file, so the CLI works from any
+directory.
 
-**Le prompt système décrit la matière, pas seulement la tâche.** Il dit au
-modèle que le texte sort d'une reconnaissance vocale — mots mal reconnus,
-ponctuation approximative, hésitations — et qu'il doit lire à travers ces
-défauts sans les commenter. Il lui dit aussi que les étiquettes `[SPEAKER_00]`
-d'une sortie diarisée sont des identifiants arbitraires et non des noms. Sans
-ça, le modèle a tendance soit à commenter la qualité de la transcription, soit
-à inventer des noms de locuteurs.
+**The system prompt describes the material, not only the task.** It tells the
+model the text comes out of speech recognition — misheard words, approximate
+punctuation, hesitations — and that it must read through those flaws without
+commenting on them. It also tells it that the `[SPEAKER_00]` labels of a
+diarized output are arbitrary identifiers, not names. Without that, the model
+tends either to comment on the transcription's quality or to invent speaker
+names.
 
-**Le paramètre `style` est du texte libre**, injecté tel quel dans le prompt
-(`concis` par défaut, mais `en trois puces` ou `pour quelqu'un qui n'était pas
-là` marchent aussi). Pas d'énumération fermée : le modèle comprend la consigne
-en toutes lettres, une table de correspondance n'apporterait rien.
+**The `style` parameter is free text**, injected as-is into the prompt
+(`concise` by default, but `in three bullets` or `for someone who was not there`
+work too). No closed enumeration: the model understands the instruction in plain
+words, a lookup table would add nothing.
 
-**Modèle par défaut : `claude-sonnet-5`.** `--model` permet d'en changer au cas
-par cas, `claude-opus-5` étant le plus capable si le besoin s'en fait sentir.
+**Default model: `claude-sonnet-5`.** `--model` allows changing it case by case,
+`claude-opus-5` being the most capable should the need arise.
 
-**Garde-fou d'entrée : 150 000 caractères.** Très en dessous de la fenêtre de
-contexte du modèle — il ne protège pas l'API, il transforme un refus distant
-obscur en erreur locale lisible, **avant** de payer l'appel. Au-delà, le module
-refuse et invite à découper : il n'y a pas de découpage automatique, et ce n'est
-pas prévu tant que l'usage reste des réunions et des cours.
+**Input guard: 150,000 characters.** Far below the model's context window — it
+does not protect the API, it turns an obscure remote refusal into a readable
+local error, **before** paying for the call. Beyond that, the module refuses and
+invites you to split: there is no automatic chunking, and none is planned as
+long as the usage stays meetings and lectures.
 
-Les imports entre modules de `src/` sont **plats** (`from transcribe import …`),
-parce que ces fichiers s'exécutent comme des scripts : `python src/batch.py`
-place `src/` en tête de `sys.path`. Un `python -m src.batch` ne fonctionnerait
-pas sans imports relatifs.
+Imports between `src/` modules are **flat** (`from transcribe import …`),
+because these files run as scripts: `python src/batch.py` puts `src/` at the
+front of `sys.path`. A `python -m src.batch` would not work without relative
+imports.
 
-### Pipeline de `diarize.py`
+### `diarize.py` pipeline
 
 ```
 audio ──> whisperx.load_model + transcribe   (faster-whisper, CPU)
-      ──> whisperx.load_align_model + align  (wav2vec2, timings au mot)
-      ──> DiarizationPipeline                (pyannote, modèle sous conditions)
-      ──> whisperx.assign_word_speakers      (segments étiquetés)
+      ──> whisperx.load_align_model + align  (wav2vec2, word-level timings)
+      ──> DiarizationPipeline                (pyannote, gated model)
+      ──> whisperx.assign_word_speakers      (labelled segments)
 ```
 
 ## Installation
 
 ```bash
 python3 -m venv venv
-source venv/bin/activate        # Windows : venv\Scripts\activate
+source venv/bin/activate        # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-`ffmpeg` doit être installé — il est requis par `yt-dlp` **et** par les deux
-backends Whisper, qui décodent l'audio en l'appelant en sous-processus.
+`ffmpeg` has to be installed — it is required by `yt-dlp` **and** by both
+Whisper backends, which decode audio by calling it as a subprocess.
 
-Il n'a pas besoin d'être dans le `PATH` du processus : `src/ffmpeg_path.py` le
-retrouve dans les emplacements Homebrew habituels si le `PATH` ne le donne pas.
-C'est ce qui permet de lancer l'app autrement que depuis un terminal (voir
-[Test 12](#test-12--ffmpeg-introuvable-hors-shell-interactif-2026-08-07)).
+It does not need to be on the process's `PATH`: `src/ffmpeg_path.py` finds it in
+the usual Homebrew locations if `PATH` does not provide it. That is what makes
+it possible to launch the app from somewhere other than a terminal (see
+[Test 12](#test-12--ffmpeg-not-found-outside-an-interactive-shell-2026-08-07)).
 
-### Token Hugging Face (diarisation uniquement)
+### Hugging Face token (diarization only)
 
-`diarize.py` s'appuie sur `pyannote/speaker-diarization-community-1`, un modèle
-**sous conditions d'accès**. Il faut donc :
+`diarize.py` builds on `pyannote/speaker-diarization-community-1`, a **gated**
+model. So you need to:
 
-1. créer un token sur [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) ;
-2. accepter les conditions du modèle sur sa page Hugging Face ;
-3. le placer dans un fichier `.env` à la racine (déjà ignoré par git) :
+1. create a token at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens);
+2. accept the model's terms on its Hugging Face page;
+3. put it in a `.env` file at the root (already ignored by git):
 
 ```
 HF_TOKEN=hf_xxxxxxxxxxxxxxxx
 ```
 
-Le token peut aussi être passé directement en argument à `diarize_file()`.
-`transcribe.py` n'en a pas besoin.
+The token can also be passed directly as an argument to `diarize_file()`.
+`transcribe.py` does not need it.
 
-### Clé API Anthropic (résumé uniquement)
+### Anthropic API key (summarization only)
 
-`summarize.py` appelle l'API Claude, qui est **payante** — c'est la seule
-fonctionnalité du toolkit qui consomme un budget. Crée une clé sur
-[console.anthropic.com](https://console.anthropic.com/settings/keys) et
-place-la dans le même `.env` :
+`summarize.py` calls the Claude API, which is **paid** — it is the toolkit's
+only feature that consumes a budget. Create a key at
+[console.anthropic.com](https://console.anthropic.com/settings/keys) and put it
+in the same `.env`:
 
 ```
 ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-`.env` est ignoré par git (`.gitignore:24`, vérifié avec `git check-ignore`) et
-n'a jamais été suivi. Aucune clé n'apparaît dans les messages d'erreur du
-module : ils citent le nom de la variable et l'URL de la console, jamais la
-valeur.
+`.env` is ignored by git (`.gitignore:24`, checked with `git check-ignore`) and
+has never been tracked. No key appears in the module's error messages: they
+quote the variable's name and the console URL, never the value.
 
-Les autres modules n'en ont pas besoin — l'import d'`anthropic` est paresseux,
-donc le reste du toolkit fonctionne même sans le paquet installé.
+The other modules do not need it — the `anthropic` import is lazy, so the rest
+of the toolkit works even without the package installed.
 
-### Cache NLTK — `.nltk_data/`
+### NLTK cache — `.nltk_data/`
 
-Pendant l'alignement, whisperx télécharge le tokenizer de phrases `punkt_tab`
-(~4 Mo) via NLTK. Par défaut NLTK l'écrit dans `~/nltk_data`, à la racine du
-compte utilisateur. `diarize.py` redirige ce cache vers `.nltk_data/` à la
-racine du repo, pour que tout ce qui concerne le projet reste dans le projet.
+During alignment, whisperx downloads the `punkt_tab` sentence tokenizer (~4 MB)
+through NLTK. By default NLTK writes it to `~/nltk_data`, at the root of the
+user account. `diarize.py` redirects that cache to `.nltk_data/` at the repo
+root, so that everything concerning the project stays inside the project.
 
-`.nltk_data/` est un **cache local, régénérable, jamais committé** : il est
-dans `.gitignore`, ne contient que des données tierces téléchargées, et se
-reconstruit tout seul au prochain lancement. Il peut être supprimé à tout
-moment — le seul coût est un re-téléchargement.
+`.nltk_data/` is a **local, regenerable, never-committed cache**: it is in
+`.gitignore`, contains only downloaded third-party data, and rebuilds itself on
+the next run. It can be deleted at any time — the only cost is a re-download.
 
-La redirection se fait en tête de `diarize.py`, et repose sur deux détails de
-NLTK qu'il ne faut pas « simplifier » :
+The redirection happens at the top of `diarize.py`, and rests on two NLTK
+details that must not be "simplified":
 
-- **`os.environ["NLTK_DATA"]` doit être posé avant `import nltk`.** À l'import,
-  `nltk.downloader` instancie un singleton dont le dossier de destination est
-  figé une fois pour toutes. Un `nltk.data.path.insert()` après coup corrige
-  la *lecture* du cache, mais plus son *écriture* : le téléchargement repart
-  dans `~/nltk_data`.
-- **Le dossier doit exister avant l'import.** NLTK ne retient un chemin que
-  s'il existe et est writable. Comme `.nltk_data/` est gitignoré, il est absent
-  d'un clone frais : d'où le `os.makedirs(..., exist_ok=True)`.
+- **`os.environ["NLTK_DATA"]` has to be set before `import nltk`.** At import
+  time, `nltk.downloader` instantiates a singleton whose destination folder is
+  frozen once and for all. A later `nltk.data.path.insert()` fixes *reading* the
+  cache, but no longer *writing* it: the download goes back to `~/nltk_data`.
+- **The folder has to exist before the import.** NLTK only keeps a path if it
+  exists and is writable. Since `.nltk_data/` is gitignored, it is absent from a
+  fresh clone: hence the `os.makedirs(..., exist_ok=True)`.
 
-`batch.py` hérite de la configuration en important `diarize` ;
-`transcribe.py` (mlx-whisper) ne touche ni à whisperx ni à NLTK.
+`batch.py` inherits the configuration by importing `diarize`; `transcribe.py`
+(mlx-whisper) touches neither whisperx nor NLTK.
 
-## État d'installation par machine
+## Installation state per machine
 
-### ⚠️ Mac M5 (Apple Silicon) — machine cible, pas encore configurée
+### ⚠️ Mac M5 (Apple Silicon) — target machine, not configured yet
 
-**`mlx-whisper` doit être installé sur le Mac M5.** Le paquet repose sur le
-framework MLX d'Apple et ne s'installe que sur macOS Apple Silicon. Il est
-présent dans `requirements.txt` avec un marqueur d'environnement
-(`sys_platform == "darwin" and platform_machine == "arm64"`) : il est donc
-installé automatiquement sur le Mac, et ignoré silencieusement ailleurs.
+**`mlx-whisper` has to be installed on the M5 Mac.** The package rests on
+Apple's MLX framework and only installs on macOS Apple Silicon. It is present in
+`requirements.txt` with an environment marker (`sys_platform == "darwin" and
+platform_machine == "arm64"`): it is therefore installed automatically on the
+Mac, and silently ignored elsewhere.
 
-Sur le Mac, un simple `pip install -r requirements.txt` suffit.
+On the Mac, a plain `pip install -r requirements.txt` is enough.
 
-### Machine de dev actuelle — Windows 11, x86_64 (AMD64), Python 3.14.6
+### Current dev machine — Windows 11, x86_64 (AMD64), Python 3.14.6
 
-Ce n'est pas un Mac Apple Silicon, donc `mlx-whisper` n'y est **pas** installé.
+This is not an Apple Silicon Mac, so `mlx-whisper` is **not** installed there.
 
-| Paquet | Statut |
+| Package | Status |
 |---|---|
-| `yt-dlp` | ✅ installé (2026.7.4) |
-| `whisperx` | ❌ **non installé** — incompatible avec Python 3.14 |
-| `mlx-whisper` | ⏭️ ignoré (Apple Silicon uniquement) |
+| `yt-dlp` | ✅ installed (2026.7.4) |
+| `whisperx` | ❌ **not installed** — incompatible with Python 3.14 |
+| `mlx-whisper` | ⏭️ ignored (Apple Silicon only) |
 
-**Pourquoi whisperx échoue ici :** toutes les versions récentes de `whisperx`
-déclarent `Requires-Python >=3.10,<3.14`. pip retombe alors sur la vieille
-version 3.2.0, qui épingle `ctranslate2==4.4.0` — un paquet qui n'a aucune roue
-pour Python 3.14. L'installation s'arrête sur :
+**Why whisperx fails here:** every recent version of `whisperx` declares
+`Requires-Python >=3.10,<3.14`. pip then falls back to the old 3.2.0 version,
+which pins `ctranslate2==4.4.0` — a package with no wheel for Python 3.14. The
+installation stops on:
 
 ```
 ERROR: No matching distribution found for ctranslate2==4.4.0
 ```
 
-**Correctif :** recréer le venv avec Python 3.12 (ou 3.13), puis réinstaller :
+**Fix:** recreate the venv with Python 3.12 (or 3.13), then reinstall:
 
 ```powershell
 py -3.12 -m venv venv
 venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-Python 3.12 n'est pas encore installé sur cette machine (seul 3.14 l'est).
-Ce point est sans impact sur la machine cible : sur le Mac M5, il suffit
-d'utiliser un Python 3.12/3.13 pour le venv.
+Python 3.12 is not installed on this machine yet (only 3.14 is). This has no
+impact on the target machine: on the M5 Mac, using a Python 3.12/3.13 for the
+venv is enough.
 
 ## Testing Status
 
-Suivi de ce qui est **écrit** vs ce qui est **réellement exécuté**. « Testé »
-signifie ici : lancé pour de vrai et sortie vérifiée — pas seulement compilé.
-À mettre à jour à chaque étape.
+Tracking what is **written** vs what is **actually run**. "Tested" here means:
+run for real and output checked — not merely compiled. To be updated at every
+step.
 
-| Module / fonction | Écrit | Compile | Exécuté pour de vrai | Notes |
+> The captured terminal output in the tests below is kept **verbatim**, in the
+> French the programs emitted at the time. Translating it would falsify the
+> record; the surrounding commentary is in English.
+
+| Module / function | Written | Compiles | Actually run | Notes |
 |---|---|---|---|---|
-| `src/transcribe.py` | ✅ | ✅ | ✅ | validé de bout en bout le 2026-08-06 |
-| └ `transcribe_file()` | ✅ | ✅ | ✅ | `whisper-large-v3-mlx`, langue détectée, `.m4a` `.wav` `.opus` `.ogg` |
-| └ `save_transcript()` | ✅ | ✅ | ✅ | fichiers `output/*.txt` créés et relus |
-| └ CLI `argparse` | ✅ | ✅ | ✅ | `--help`, run nominal, codes de sortie |
-| └ erreur fichier absent | ✅ | ✅ | ✅ | message clair + `exit 1` |
-| └ erreur extension | ✅ | ✅ | ✅ | message clair + `exit 1` |
-| `src/diarize.py` | ✅ | ✅ | ✅ | pipeline complet validé le 2026-08-06 |
-| └ ASR faster-whisper | ✅ | ✅ | ✅ | `large-v3` int8 CPU, langue `fr` détectée seule |
-| └ alignement wav2vec2 | ✅ | ✅ | ✅ | 9 mots alignés, timings au mot |
-| └ `DiarizationPipeline` | ✅ | ✅ | ✅ | **2 locuteurs sur 2 séparés correctement** |
-| └ `assign_word_speakers()` | ✅ | ✅ | ✅ | labels distincts sur les deux segments |
-| └ `save_diarized_transcript()` | ✅ | ✅ | ✅ | format `[SPEAKER_XX] texte` vérifié |
-| └ `diarization_model` | ✅ | ✅ | ✅ | testé via `--diarization-model` sur un autre dépôt |
-| └ `_resolve_token()` | ✅ | ✅ | ✅ | absence de token détectée, message clair |
-| └ erreur 401 vs 403 | ✅ | ✅ | ✅ | messages distincts, vérifiés en vrai HTTP |
-| └ erreur fichier absent | ✅ | ✅ | ✅ | message clair + `exit 1` |
-| └ `--num-speakers` | ✅ | ✅ | ✅ | `2` respecté sur la fixture 2 voix |
-| `src/batch.py` | ✅ | ✅ | ✅ | validé le 2026-08-07 |
-| └ `list_audio_files()` | ✅ | ✅ | ✅ | filtre extensions, ignore `.txt` et sous-dossiers |
-| └ `process_folder()` | ✅ | ✅ | ✅ | mode transcription et mode `--diarize` |
-| └ échec partiel | ✅ | ✅ | ✅ | **le lot continue**, 2/3 traités sur fichier corrompu |
-| └ `--num-speakers` propagé | ✅ | ✅ | ✅ | borne `[2, 2]` bien reçue par pyannote |
-| └ `short_reason()` | ✅ | ✅ | ✅ | bannière ffmpeg de 13 lignes réduite à 1 |
-| └ dossier introuvable / vide | ✅ | ✅ | ✅ | `exit 1` / `exit 0` avec message |
-| `src/youtube.py` | ✅ | ✅ | ✅ | validé le 2026-08-07 (Test 7) |
-| └ `transcribe_youtube()` | ✅ | ✅ | ✅ | retourne `(texte, chemin)` depuis l'étape 8 |
-| `src/summarize.py` | ✅ | ✅ | ✅ | `claude-sonnet-5`, 26/26 faits capturés sur 2 411 mots, ≈ 0,039 $ (Test 9) |
-| └ `summary_path()` | ✅ | ✅ | ✅ | ajouté à l'étape 8, exercé par la reprise de `batch --summarize` |
-| `src/cli.py` | ✅ | ✅ | ✅ | validé le 2026-08-07 (Test 10) |
-| └ `transcribe` | ✅ | ✅ | ✅ | seul, et avec `--diarize --num-speakers 2 --summarize` |
-| └ `batch` | ✅ | ✅ | ✅ | 2 succès / 1 échec isolé, reprise à deux niveaux |
-| └ `youtube` | ✅ | ✅ | ✅ | vidéo NASA, avec `--summarize` |
-| └ `summarize` | ✅ | ✅ | ✅ | `--model claude-haiku-4-5` et `--style` vérifiés |
-| └ `--summarize` enchaîné | ✅ | ✅ | ✅ | sur les trois entrées audio |
-| └ avertissements d'options | ✅ | ✅ | ✅ | `--num-speakers` sans `--diarize`, `--language` avec |
-| └ codes de sortie | ✅ | ✅ | ✅ | `0` / `1`, échec partiel de lot compris |
-| └ imports paresseux | ✅ | ✅ | ✅ | `--help` en 0,03 s contre 0,72 s en imports directs |
-| `app.py` | ✅ | ✅ | ✅ | validé le 2026-08-07 dans un vrai navigateur (Test 11) |
-| └ onglet *Fichier unique* | ✅ | ✅ | ✅ | upload → `output/two_voices_generated.txt` |
-| └ onglet *Dossier (batch)* | ✅ | ✅ | ✅ | 2 succès / 1 échec isolé, puis reprise 2 sautés |
-| └ onglet *YouTube* | ✅ | ✅ | ✅ | vidéo NASA, seule ou avec résumé enchaîné |
-| └ case « Résumer » | ✅ | ✅ | ✅ | appel réel, résumé affiché et écrit dans `output/` |
-| └ racine autorisée | ✅ | ✅ | ✅ | `/etc` et `../../../../etc` refusés |
-| └ grisage langue / locuteurs | ✅ | ✅ | ✅ | équivalent des avertissements du CLI |
-| └ sélecteur de langue | ✅ | ✅ | ✅ | valeur invalide impossible, `en` forcé vérifié par la traduction |
-| `src/ffmpeg_path.py` | ✅ | ✅ | ✅ | validé le 2026-08-07 sous PATH amputé (Test 12) |
-| └ `find_ffmpeg()` | ✅ | ✅ | ✅ | via `PATH`, et via le repli Homebrew quand `which` échoue |
-| └ `ensure_on_path()` | ✅ | ✅ | ✅ | `PATH` corrigé, appel idempotent vérifié |
-| └ `ffmpeg_location` (yt-dlp) | ✅ | ✅ | ✅ | téléchargement réussi sans ffmpeg dans le `PATH` |
-| `src/__init__.py` | ✅ (vide) | ✅ | n/a | simple marqueur de package |
-| Surveillance de dossier | ❌ | — | — | volontairement non implémentée |
-| `tests/` | ❌ vide | — | — | aucun test automatisé |
+| `src/transcribe.py` | ✅ | ✅ | ✅ | validated end to end on 2026-08-06 |
+| └ `transcribe_file()` | ✅ | ✅ | ✅ | `whisper-large-v3-mlx`, detected language, `.m4a` `.wav` `.opus` `.ogg` |
+| └ `save_transcript()` | ✅ | ✅ | ✅ | `output/*.txt` files created and re-read |
+| └ `argparse` CLI | ✅ | ✅ | ✅ | `--help`, nominal run, exit codes |
+| └ missing file error | ✅ | ✅ | ✅ | clear message + `exit 1` |
+| └ extension error | ✅ | ✅ | ✅ | clear message + `exit 1` |
+| `src/diarize.py` | ✅ | ✅ | ✅ | full pipeline validated on 2026-08-06 |
+| └ faster-whisper ASR | ✅ | ✅ | ✅ | `large-v3` int8 CPU, `fr` language detected on its own |
+| └ wav2vec2 alignment | ✅ | ✅ | ✅ | 9 words aligned, word-level timings |
+| └ `DiarizationPipeline` | ✅ | ✅ | ✅ | **2 speakers out of 2 separated correctly** |
+| └ `assign_word_speakers()` | ✅ | ✅ | ✅ | distinct labels on both segments |
+| └ `save_diarized_transcript()` | ✅ | ✅ | ✅ | `[SPEAKER_XX] text` format verified |
+| └ `diarization_model` | ✅ | ✅ | ✅ | tested via `--diarization-model` on another repo |
+| └ `_resolve_token()` | ✅ | ✅ | ✅ | missing token detected, clear message |
+| └ 401 vs 403 error | ✅ | ✅ | ✅ | distinct messages, checked over real HTTP |
+| └ missing file error | ✅ | ✅ | ✅ | clear message + `exit 1` |
+| └ `--num-speakers` | ✅ | ✅ | ✅ | `2` honoured on the 2-voice fixture |
+| `src/batch.py` | ✅ | ✅ | ✅ | validated on 2026-08-07 |
+| └ `list_audio_files()` | ✅ | ✅ | ✅ | filters extensions, ignores `.txt` and subfolders |
+| └ `process_folder()` | ✅ | ✅ | ✅ | transcription mode and `--diarize` mode |
+| └ partial failure | ✅ | ✅ | ✅ | **the batch carries on**, 2/3 processed with a corrupted file |
+| └ `--num-speakers` forwarded | ✅ | ✅ | ✅ | `[2, 2]` bound properly received by pyannote |
+| └ `short_reason()` | ✅ | ✅ | ✅ | 13-line ffmpeg banner reduced to 1 |
+| └ folder missing / empty | ✅ | ✅ | ✅ | `exit 1` / `exit 0` with a message |
+| `src/youtube.py` | ✅ | ✅ | ✅ | validated on 2026-08-07 (Test 7) |
+| └ `transcribe_youtube()` | ✅ | ✅ | ✅ | returns `(text, path)` since step 8 |
+| `src/summarize.py` | ✅ | ✅ | ✅ | `claude-sonnet-5`, 26/26 facts captured over 2,411 words, ≈ $0.039 (Test 9) |
+| └ `summary_path()` | ✅ | ✅ | ✅ | added at step 8, exercised by `batch --summarize` resuming |
+| `src/cli.py` | ✅ | ✅ | ✅ | validated on 2026-08-07 (Test 10) |
+| └ `transcribe` | ✅ | ✅ | ✅ | alone, and with `--diarize --num-speakers 2 --summarize` |
+| └ `batch` | ✅ | ✅ | ✅ | 2 successes / 1 isolated failure, resuming at two levels |
+| └ `youtube` | ✅ | ✅ | ✅ | NASA video, with `--summarize` |
+| └ `summarize` | ✅ | ✅ | ✅ | `--model claude-haiku-4-5` and `--style` verified |
+| └ chained `--summarize` | ✅ | ✅ | ✅ | on all three audio inputs |
+| └ option warnings | ✅ | ✅ | ✅ | `--num-speakers` without `--diarize`, `--language` with it |
+| └ exit codes | ✅ | ✅ | ✅ | `0` / `1`, partial batch failure included |
+| └ lazy imports | ✅ | ✅ | ✅ | `--help` in 0.03 s against 0.72 s with direct imports |
+| `app.py` | ✅ | ✅ | ✅ | validated on 2026-08-07 in a real browser (Test 11) |
+| └ *Single file* tab | ✅ | ✅ | ✅ | upload → `output/two_voices_generated.txt` |
+| └ *Folder (batch)* tab | ✅ | ✅ | ✅ | 2 successes / 1 isolated failure, then a resume with 2 skipped |
+| └ *YouTube* tab | ✅ | ✅ | ✅ | NASA video, alone or with a chained summary |
+| └ "Summarize" box | ✅ | ✅ | ✅ | real call, summary displayed and written to `output/` |
+| └ allowed root | ✅ | ✅ | ✅ | `/etc` and `../../../../etc` refused |
+| └ language / speakers greying | ✅ | ✅ | ✅ | equivalent of the CLI's warnings |
+| └ language selector | ✅ | ✅ | ✅ | invalid value impossible, forced `en` confirmed by the translation |
+| `src/ffmpeg_path.py` | ✅ | ✅ | ✅ | validated on 2026-08-07 under a stripped PATH (Test 12) |
+| └ `find_ffmpeg()` | ✅ | ✅ | ✅ | via `PATH`, and via the Homebrew fallback when `which` fails |
+| └ `ensure_on_path()` | ✅ | ✅ | ✅ | `PATH` fixed, idempotent call verified |
+| └ `ffmpeg_location` (yt-dlp) | ✅ | ✅ | ✅ | download succeeded with no ffmpeg on `PATH` |
+| `src/__init__.py` | ✅ (empty) | ✅ | n/a | plain package marker |
+| Folder watching | ❌ | — | — | deliberately not implemented |
+| `tests/` | ❌ empty | — | — | no automated tests |
 
 ### Transcriptions réelles exécutées (2026-08-06)
 
