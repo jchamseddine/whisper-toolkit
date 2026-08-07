@@ -35,7 +35,8 @@ whisper-toolkit/
 │   ├── transcribe.py  # transcription simple (mlx-whisper)
 │   ├── diarize.py     # transcription + locuteurs (whisperx)
 │   ├── batch.py       # traitement d'un dossier entier
-│   └── youtube.py     # transcription depuis une URL (yt-dlp)
+│   ├── youtube.py     # transcription depuis une URL (yt-dlp)
+│   └── summarize.py   # résumé d'une transcription (API Claude)
 └── tests/             # tests (vide pour l'instant)
 ```
 
@@ -175,6 +176,45 @@ bord utile : un titre comme `../../etc/passwd` devient `etc_passwd`, donc aucune
 **Langue : détection automatique**, comme partout ailleurs depuis que le défaut
 `fr` a été retiré de `transcribe_file()` — voir « Langue » ci-dessous.
 
+### `summarize.py` — la seule étape qui sort de la machine
+
+Tout le reste du toolkit tourne en local. `summarize.py` envoie du texte à
+l'API Claude : c'est le seul module qui expose du contenu à un service externe,
+et la seule fonctionnalité qui coûte de l'argent.
+
+```
+transcription (.txt) ──> summarize_text()   (API Claude)
+                     ──> output/{nom}_summary.txt
+```
+
+**Il prend un fichier texte, jamais de l'audio.** Le résumé est une étape
+séparée qui s'enchaîne après la transcription, pas un mode de plus dans
+`transcribe.py` : on résume un texte déjà produit, éventuellement corrigé à la
+main, sans repayer une transcription.
+
+```bash
+python src/transcribe.py cours.m4a          # produit output/cours.txt
+python src/summarize.py output/cours.txt    # produit output/cours_summary.txt
+```
+
+**Clé API.** Elle est lue dans `.env` sous `ANTHROPIC_API_KEY`, même mécanisme
+que `HF_TOKEN` — voir « Clé API Anthropic » plus bas. `load_dotenv()` cherche
+le `.env` à partir du fichier appelant, donc le CLI marche depuis n'importe
+quel répertoire.
+
+**Le prompt système décrit la matière, pas seulement la tâche.** Il dit au
+modèle que le texte sort d'une reconnaissance vocale — mots mal reconnus,
+ponctuation approximative, hésitations — et qu'il doit lire à travers ces
+défauts sans les commenter. Il lui dit aussi que les étiquettes `[SPEAKER_00]`
+d'une sortie diarisée sont des identifiants arbitraires et non des noms. Sans
+ça, le modèle a tendance soit à commenter la qualité de la transcription, soit
+à inventer des noms de locuteurs.
+
+**Le paramètre `style` est du texte libre**, injecté tel quel dans le prompt
+(`concis` par défaut, mais `en trois puces` ou `pour quelqu'un qui n'était pas
+là` marchent aussi). Pas d'énumération fermée : le modèle comprend la consigne
+en toutes lettres, une table de correspondance n'apporterait rien.
+
 Les imports entre modules de `src/` sont **plats** (`from transcribe import …`),
 parce que ces fichiers s'exécutent comme des scripts : `python src/batch.py`
 place `src/` en tête de `sys.path`. Un `python -m src.batch` ne fonctionnerait
@@ -215,6 +255,25 @@ HF_TOKEN=hf_xxxxxxxxxxxxxxxx
 
 Le token peut aussi être passé directement en argument à `diarize_file()`.
 `transcribe.py` n'en a pas besoin.
+
+### Clé API Anthropic (résumé uniquement)
+
+`summarize.py` appelle l'API Claude, qui est **payante** — c'est la seule
+fonctionnalité du toolkit qui consomme un budget. Crée une clé sur
+[console.anthropic.com](https://console.anthropic.com/settings/keys) et
+place-la dans le même `.env` :
+
+```
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+`.env` est ignoré par git (`.gitignore:24`, vérifié avec `git check-ignore`) et
+n'a jamais été suivi. Aucune clé n'apparaît dans les messages d'erreur du
+module : ils citent le nom de la variable et l'URL de la console, jamais la
+valeur.
+
+Les autres modules n'en ont pas besoin — l'import d'`anthropic` est paresseux,
+donc le reste du toolkit fonctionne même sans le paquet installé.
 
 ### Cache NLTK — `.nltk_data/`
 
@@ -320,7 +379,7 @@ signifie ici : lancé pour de vrai et sortie vérifiée — pas seulement compil
 | `src/__init__.py` | ✅ (vide) | ✅ | n/a | simple marqueur de package |
 | YouTube (`yt-dlp`) | ❌ | — | — | dépendance installée, code non écrit |
 | Surveillance de dossier | ❌ | — | — | volontairement non implémentée |
-| Résumé (API Claude) | ❌ | — | — | `anthropic` absent de `requirements.txt` |
+| Résumé (API Claude) | ✅ | ✅ | ⚠️ | logique validée hors ligne ; appel réel bloqué faute de crédits (Test 9) |
 | `tests/` | ❌ vide | — | — | aucun test automatisé |
 
 ### Transcriptions réelles exécutées (2026-08-06)
@@ -716,6 +775,54 @@ inventé, sans que le résumé du lot signale quoi que ce soit.
 `youtube.py` perd du même coup son `kwargs.setdefault("language", None)`, qui
 n'était qu'un contournement local du défaut désormais supprimé.
 
+### Test 9 — `summarize.py` (2026-08-07)
+
+> ⛔ **L'appel réel à l'API n'a pas pu être exécuté : le compte Anthropic n'a
+> plus de crédits.** La clé est valide et authentifie correctement — l'API
+> répond `HTTP 400 invalid_request_error : "Your credit balance is too low"`,
+> ce qui est un refus au niveau du compte, pas de la clé. **La qualité des
+> résumés produits n'a donc jamais été observée.** Tout ce qui suit valide la
+> plomberie, pas la sortie du modèle.
+
+Ce qui a été vérifié **en conditions réelles**, contre l'API :
+
+| Scénario | Obtenu |
+|---|---|
+| Clé valide, compte sans crédits | message dédié, distinct du 401 |
+| Clé invalide (`sk-ant-invalide-...`) | « Clé API refusée (HTTP 401) » + lien console |
+| Clé absente (`.env` mis de côté) | « Clé API introuvable » + marche à suivre |
+
+Le solde épuisé remonte en **400**, pas en 401 ni 403. Sans cas dédié, le
+message générique renvoyait l'utilisateur vers la régénération d'une clé qui
+n'a aucun problème — d'où une branche explicite qui dit que la clé est valide
+et que c'est le compte qu'il faut recharger.
+
+**Aucune clé ne fuit** : `grep -c "sk-ant-"` sur la sortie d'erreur complète
+retourne `0`. `.env` est ignoré (`git check-ignore` → `.gitignore:24`) et
+`git ls-files .env` est vide — il n'a jamais été suivi.
+
+Le reste a été validé **avec un client simulé**, en inspectant la requête que
+le module aurait envoyée :
+
+| Vérification | Obtenu |
+|---|---|
+| Modèle, `max_tokens`, rôle du message | `claude-sonnet-4-6`, 4096, `user` |
+| Transcription transmise sans altération | ✅ identique octet pour octet |
+| `style` injecté dans le prompt système | ✅ y compris une valeur libre |
+| Consigne sur les étiquettes `[SPEAKER_XX]` | ✅ présente |
+| Plusieurs blocs `text` concaténés | ✅ |
+| Blocs non-texte ignorés | ✅ |
+| `stop_reason: max_tokens` | avertissement sur stderr, résumé rendu quand même |
+| `stop_reason: refusal` | erreur claire, aucun fichier écrit |
+| `save_summary()` | `output/{nom}_summary.txt`, relu identique |
+| CLI complet | texte sur stdout, chemin sur stderr, fichier écrit |
+
+**Sur la transcription utilisée.** Le consigne était « le plus long transcript
+disponible » : c'est `NASA_Artemis_II….txt`, **700 octets, ~123 mots**. Toutes
+les transcriptions de `output/` font moins de 1 Ko. Même avec des crédits, ce
+test aurait donc validé le passage de bout en bout, pas le comportement du
+résumé sur un vrai cours d'une heure — le cas qui motive la fonctionnalité.
+
 ### Environnement de test (vérifié le 2026-08-06)
 
 Mac M5 (`Darwin arm64`) — tout est en place :
@@ -728,7 +835,8 @@ Mac M5 (`Darwin arm64`) — tout est en place :
 | `yt-dlp` | ✅ 2026.7.4 |
 | `python-dotenv` | ✅ 1.2.2 |
 | `ffmpeg` | ✅ 8.1.2 dans le `PATH` |
-| `anthropic` | ❌ non installé, pas encore requis |
+| `anthropic` | ✅ 0.120.2 |
+| `ANTHROPIC_API_KEY` / `.env` | ⚠️ présente et valide, mais **compte sans crédits** |
 | `HF_TOKEN` / `.env` | ✅ présent et valide (token classique, lecture) |
 | Accès `pyannote/speaker-diarization-community-1` | ✅ conditions acceptées |
 
@@ -782,6 +890,16 @@ Mac M5 (`Darwin arm64`) — tout est en place :
   *à l'intérieur* d'un même fichier — Whisper ne détecte que sur la première
   fenêtre, un enregistrement bilingue serait donc transcrit dans une seule
   langue.
+- **`summarize.py` n'a jamais produit un seul résumé** : le compte Anthropic est
+  sans crédits, donc la qualité de la sortie, le respect du `style`, la latence
+  et le coût réel par résumé sont tous inconnus. C'est le premier point à
+  reprendre une fois le compte rechargé.
+- `summarize.py` sur une transcription longue : les fichiers de test font moins
+  de 1 Ko. Le plafond `MAX_TOKENS = 4096` n'a jamais été approché, et la
+  troncature n'a été vérifiée qu'en simulant `stop_reason: max_tokens`.
+- `summarize.py` ne découpe pas les entrées trop longues : une transcription qui
+  dépasse la fenêtre de contexte du modèle partira telle quelle et sera refusée
+  par l'API. Aucun découpage, aucun garde-fou côté client.
 - Autres modèles que `whisper-large-v3-mlx`.
 - Tests automatisés dans `tests/` : aucun pour l'instant, tout a été vérifié
   à la main.

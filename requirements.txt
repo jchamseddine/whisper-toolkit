@@ -11,3 +11,6 @@ python-dotenv
 
 # Téléchargement audio depuis YouTube & co.
 yt-dlp
+
+# Résumé via l'API Claude (requiert ANTHROPIC_API_KEY dans .env)
+anthropic
