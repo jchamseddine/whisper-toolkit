@@ -76,31 +76,42 @@ def _summarize_transcript(transcript_file: str, model: str, style: str) -> str:
     return output_path
 
 
-def _summarize_batch(summary: dict, args: argparse.Namespace) -> int:
+def summarize_batch(
+    summary: dict,
+    diarize: bool = False,
+    force: bool = False,
+    model: str = DEFAULT_SUMMARY_MODEL,
+    style: str = DEFAULT_STYLE,
+) -> int:
     """Résume les transcriptions d'un lot. Retourne le nombre d'échecs.
 
     Les fichiers sautés par la reprise sont inclus : leur transcription existe,
     elle est donc résumable — sans quoi un lot repris ne résumerait que les
     fichiers qui restaient à traiter. Un résumé déjà présent est sauté à son
-    tour, sauf `--force` : chaque appel à l'API se paie.
+    tour, sauf `force` : chaque appel à l'API se paie.
 
     Un résumé en échec n'interrompt pas la série, comme pour le lot lui-même.
+
+    Prend des paramètres explicites et non le `Namespace` d'argparse, comme
+    `batch.report_summary()` : c'est ce qui la rend appelable depuis `app.py`,
+    qui n'a pas de ligne de commande à lui passer. La règle de reprise des
+    résumés n'a ainsi qu'une définition, valable pour les deux points d'entrée.
     """
     from diarize import diarized_transcript_path
 
-    path_of = diarized_transcript_path if args.diarize else transcript_path
+    path_of = diarized_transcript_path if diarize else transcript_path
     transcripts = sorted(path_of(path) for path in summary["success"] + summary["skipped"])
 
     failed = 0
     for transcript_file in transcripts:
         expected_summary = summary_path(transcript_file)
-        if not args.force and os.path.isfile(expected_summary):
+        if not force and os.path.isfile(expected_summary):
             print(f"Résumé sauté — déjà présent : {expected_summary}", file=sys.stderr)
             continue
 
         print(f"\nRésumé de {os.path.basename(transcript_file)}", file=sys.stderr)
         try:
-            _summarize_transcript(transcript_file, args.summary_model, args.summary_style)
+            _summarize_transcript(transcript_file, model, style)
         except ValueError as error:
             failed += 1
             print(f"Erreur : {error}", file=sys.stderr)
@@ -143,7 +154,13 @@ def _run_batch(args: argparse.Namespace) -> int:
     report_summary(summary)
     exit_code = 1 if summary["failed"] else 0
 
-    if args.summarize and _summarize_batch(summary, args):
+    if args.summarize and summarize_batch(
+        summary,
+        diarize=args.diarize,
+        force=args.force,
+        model=args.summary_model,
+        style=args.summary_style,
+    ):
         exit_code = 1
 
     return exit_code

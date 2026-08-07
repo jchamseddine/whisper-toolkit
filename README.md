@@ -291,12 +291,15 @@ avertissements que le CLI imprime deviennent ici du grisage : cocher
 « Identifier les locuteurs » désactive le champ langue, que whisperx ignorerait.
 
 **Ce que l'app réutilise sans le recopier**, au-delà des fonctions de pipeline :
-`cli._summarize_batch()` pour la règle de résumé d'un lot — résumer aussi les
+`cli.summarize_batch()` pour la règle de résumé d'un lot — résumer aussi les
 fichiers sautés par la reprise, mais pas ceux dont le `_summary.txt` existe déjà
-— et `batch._short_reason()` pour réduire la bannière ffmpeg à une ligne dans le
-tableau. Deux fonctions privées appelées depuis l'extérieur de leur module :
-c'est le prix payé pour ne pas dupliquer la règle, et ce sont les deux candidates
-si un jour l'API doit devenir publique.
+— et `batch.short_reason()` pour réduire la bannière ffmpeg à une ligne dans le
+tableau. Les deux sont **publiques**, et `summarize_batch()` prend des paramètres
+explicites plutôt que le `Namespace` d'argparse qu'elle lisait quand elle ne
+servait qu'au CLI : c'est le même ajustement que `batch.report_summary()` à
+l'étape 8, pour la même raison — une règle qui vaut pour les deux points d'entrée
+n'a pas à être écrite deux fois, ni à passer par une ligne de commande fabriquée
+pour l'occasion.
 
 **Les imports lourds restent dans les fonctions**, pour la même raison qu'ailleurs
 et une de plus : Streamlit ré-exécute le script en entier à chaque interaction,
@@ -600,7 +603,7 @@ signifie ici : lancé pour de vrai et sortie vérifiée — pas seulement compil
 | └ `process_folder()` | ✅ | ✅ | ✅ | mode transcription et mode `--diarize` |
 | └ échec partiel | ✅ | ✅ | ✅ | **le lot continue**, 2/3 traités sur fichier corrompu |
 | └ `--num-speakers` propagé | ✅ | ✅ | ✅ | borne `[2, 2]` bien reçue par pyannote |
-| └ `_short_reason()` | ✅ | ✅ | ✅ | bannière ffmpeg de 13 lignes réduite à 1 |
+| └ `short_reason()` | ✅ | ✅ | ✅ | bannière ffmpeg de 13 lignes réduite à 1 |
 | └ dossier introuvable / vide | ✅ | ✅ | ✅ | `exit 1` / `exit 0` avec message |
 | `src/youtube.py` | ✅ | ✅ | ✅ | validé le 2026-08-07 (Test 7) |
 | └ `transcribe_youtube()` | ✅ | ✅ | ✅ | retourne `(texte, chemin)` depuis l'étape 8 |
@@ -839,7 +842,7 @@ dossier sans aucun fichier audio → message et `exit 0`, sans erreur.
 
 > **Lisibilité du résumé.** Quand ffmpeg échoue, il recrache sa bannière de
 > compilation : l'erreur brute du fichier corrompu fait **13 lignes et
-> 1173 caractères**, ce qui noyait tout le résumé du lot. `_short_reason()` la
+> 1173 caractères**, ce qui noyait tout le résumé du lot. `short_reason()` la
 > réduit à sa première ligne pour l'affichage. L'erreur complète reste
 > accessible dans le dict retourné par `process_folder()`.
 
@@ -1167,7 +1170,7 @@ vidéo NASA, 21,5 s avec le résumé enchaîné. Aucune exception Streamlit
 
 **Le fichier corrompu est le cas qui compte** dans l'onglet lot : le traitement
 va au bout, la ligne en échec apparaît dans le tableau avec la bannière ffmpeg
-réduite à une ligne par `batch._short_reason()`, et les deux autres fichiers sont
+réduite à une ligne par `batch.short_reason()`, et les deux autres fichiers sont
 transcrits. C'est le comportement du CLI (Test 5), obtenu sans le réécrire.
 
 **Racine autorisée, vérifiée par contournement** et non par lecture du code :

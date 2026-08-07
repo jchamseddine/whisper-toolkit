@@ -18,12 +18,16 @@ from transcribe import (
 )
 
 
-def _short_reason(reason: str, limit: int = 160) -> str:
+def short_reason(reason: str, limit: int = 160) -> str:
     """Réduit une erreur à une ligne affichable.
 
     ffmpeg recrache sa bannière de compilation complète en cas d'échec : sans
     ça, un seul fichier en erreur noie tout le résumé du lot. L'erreur entière
     reste dans le dict retourné par `process_folder`.
+
+    Publique pour la même raison que `report_summary()` : le tableau d'échecs de
+    l'interface web en a besoin aussi, et cette mise en forme n'a qu'une
+    définition.
     """
     first_line = reason.splitlines()[0].strip()
     if len(first_line) > limit:
@@ -133,7 +137,7 @@ def report_summary(summary: dict) -> None:
     if summary["failed"]:
         print(f"Échecs : {len(summary['failed'])}")
         for path, reason in summary["failed"]:
-            print(f"  - {os.path.basename(path)} : {_short_reason(reason)}")
+            print(f"  - {os.path.basename(path)} : {short_reason(reason)}")
 
 
 def main() -> None:

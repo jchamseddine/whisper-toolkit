@@ -272,22 +272,14 @@ def _run_folder(folder: str, options: dict, force: bool) -> dict:
     if options["summarize"] and (summary["success"] or summary["skipped"]):
         # La règle de résumé d'un lot — résumer aussi les fichiers sautés par la
         # reprise, mais pas ceux dont le `_summary.txt` existe déjà — vit dans
-        # `cli._summarize_batch()`, qui la lit dans un Namespace argparse. On lui
-        # en fabrique un plutôt que de réécrire la règle ici : dupliquée, elle
-        # finirait par diverger de celle du CLI.
-        from types import SimpleNamespace
+        # `cli.summarize_batch()`. On l'appelle plutôt que de la réécrire ici :
+        # dupliquée, elle finirait par diverger de celle du CLI.
+        from cli import summarize_batch
 
-        from cli import _summarize_batch
-        from summarize import DEFAULT_MODEL, DEFAULT_STYLE
-
-        args = SimpleNamespace(
-            diarize=options["diarize"],
-            force=force,
-            summary_model=DEFAULT_MODEL,
-            summary_style=DEFAULT_STYLE,
-        )
         with st.spinner("Résumés via l'API Claude…"):
-            summaries_failed = _summarize_batch(summary, args)
+            summaries_failed = summarize_batch(
+                summary, diarize=options["diarize"], force=force
+            )
 
     return {"summary": summary, "summaries_failed": summaries_failed}
 
@@ -302,7 +294,7 @@ def _render_batch() -> None:
     if not state:
         return
 
-    from batch import _short_reason
+    from batch import short_reason
 
     summary = state["summary"]
     success, skipped, failed = (
@@ -336,7 +328,7 @@ def _render_batch() -> None:
         {
             "Fichier": os.path.basename(path),
             "Statut": "❌ Échec",
-            "Détail": _short_reason(reason),
+            "Détail": short_reason(reason),
         }
         for path, reason in failed
     ]
