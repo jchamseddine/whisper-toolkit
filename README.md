@@ -2,11 +2,13 @@
 
 CLI Python de transcription audio **locale**, basé sur Whisper.
 
-> **Statut : en cours de développement.** Transcription locale, diarisation et
-> traitement par lot sont implémentés et validés — la séparation des locuteurs
-> reste toutefois testée sur des voix de synthèse, sans chevauchement de parole.
-> YouTube et résumé ne sont pas commencés. Détail dans
-> [Testing Status](#testing-status).
+> **Statut : en cours de développement.** Transcription locale, diarisation,
+> traitement par lot, transcription depuis une URL YouTube et résumé via l'API
+> Claude sont implémentés et exécutés pour de vrai. Deux réserves : la
+> séparation des locuteurs n'a été testée que sur des voix de synthèse, sans
+> chevauchement de parole, et le résumé n'a été mesuré que sur une transcription
+> écrite à la main, pas sur une vraie sortie Whisper longue. La surveillance de
+> dossier n'est pas commencée. Détail dans [Testing Status](#testing-status).
 
 ## Fonctionnalités prévues
 
@@ -215,6 +217,15 @@ d'une sortie diarisée sont des identifiants arbitraires et non des noms. Sans
 là` marchent aussi). Pas d'énumération fermée : le modèle comprend la consigne
 en toutes lettres, une table de correspondance n'apporterait rien.
 
+**Modèle par défaut : `claude-sonnet-5`.** `--model` permet d'en changer au cas
+par cas, `claude-opus-5` étant le plus capable si le besoin s'en fait sentir.
+
+**Garde-fou d'entrée : 150 000 caractères.** Très en dessous de la fenêtre de
+contexte du modèle — il ne protège pas l'API, il transforme un refus distant
+obscur en erreur locale lisible, **avant** de payer l'appel. Au-delà, le module
+refuse et invite à découper : il n'y a pas de découpage automatique, et ce n'est
+pas prévu tant que l'usage reste des réunions et des cours.
+
 Les imports entre modules de `src/` sont **plats** (`from transcribe import …`),
 parce que ces fichiers s'exécutent comme des scripts : `python src/batch.py`
 place `src/` en tête de `sys.path`. Un `python -m src.batch` ne fonctionnerait
@@ -379,7 +390,7 @@ signifie ici : lancé pour de vrai et sortie vérifiée — pas seulement compil
 | `src/__init__.py` | ✅ (vide) | ✅ | n/a | simple marqueur de package |
 | YouTube (`yt-dlp`) | ❌ | — | — | dépendance installée, code non écrit |
 | Surveillance de dossier | ❌ | — | — | volontairement non implémentée |
-| Résumé (API Claude) | ✅ | ✅ | ⚠️ | logique validée hors ligne ; appel réel bloqué faute de crédits (Test 9) |
+| Résumé (API Claude) | ✅ | ✅ | ✅ | `claude-sonnet-5`, 26/26 faits capturés sur 2 411 mots, ≈ 0,039 $ (Test 9) |
 | `tests/` | ❌ vide | — | — | aucun test automatisé |
 
 ### Transcriptions réelles exécutées (2026-08-06)
@@ -775,53 +786,73 @@ inventé, sans que le résumé du lot signale quoi que ce soit.
 `youtube.py` perd du même coup son `kwargs.setdefault("language", None)`, qui
 n'était qu'un contournement local du défaut désormais supprimé.
 
-### Test 9 — `summarize.py` (2026-08-07)
+### Test 9 — `summarize.py`, appel réel sur transcription longue (2026-08-07)
 
-> ⛔ **L'appel réel à l'API n'a pas pu être exécuté : le compte Anthropic n'a
-> plus de crédits.** La clé est valide et authentifie correctement — l'API
-> répond `HTTP 400 invalid_request_error : "Your credit balance is too low"`,
-> ce qui est un refus au niveau du compte, pas de la clé. **La qualité des
-> résumés produits n'a donc jamais été observée.** Tout ce qui suit valide la
-> plomberie, pas la sortie du modèle.
+Premier test avec des crédits sur le compte : l'appel à l'API a bien eu lieu et
+un résumé a été produit. Le blocage du premier essai (`HTTP 400`, solde
+insuffisant) est levé — la branche d'erreur correspondante reste en place et
+avait été validée à ce moment-là.
 
-Ce qui a été vérifié **en conditions réelles**, contre l'API :
+**Sur le texte de test.** Les transcriptions de `output/` totalisent moins de
+400 mots à elles toutes : les concaténer ne donnait pas un cas représentatif.
+La transcription de test est donc **rédigée à la main** — une réunion de suivi
+de projet en français, **2 411 mots / 14 495 caractères**, avec étiquettes
+`[SPEAKER_XX]`, hésitations, répétitions et phrases interrompues.
 
-| Scénario | Obtenu |
+> ⚠️ Elle **simule** une sortie de reconnaissance vocale, elle n'en est pas une.
+> Les défauts sont plausibles mais choisis ; un vrai ASR se trompe autrement, en
+> particulier sur les noms propres et les chiffres. Ce test valide le
+> comportement du résumé sur un texte long et bruité, pas sa robustesse aux
+> erreurs réelles de Whisper.
+
+En contrepartie, comme le texte est écrit, **on connaît la vérité terrain** :
+26 faits vérifiables y ont été placés délibérément — décisions, actions,
+montants, dates, un désaccord tranché et un sujet volontairement non tranché.
+
+**Mesures du run :**
+
+| | |
 |---|---|
-| Clé valide, compte sans crédits | message dédié, distinct du 401 |
-| Clé invalide (`sk-ant-invalide-...`) | « Clé API refusée (HTTP 401) » + lien console |
-| Clé absente (`.env` mis de côté) | « Clé API introuvable » + marche à suivre |
+| Modèle | `claude-sonnet-5` |
+| Durée | 15,1 s |
+| Tokens | 6 935 en entrée, 1 237 en sortie |
+| Coût | ≈ **0,039 $** par résumé (tarif Sonnet 3 $/15 $ par MTok) |
+| Compression | 470 mots pour 2 400, soit 20 % |
+| `stop_reason` | `end_turn` — pas de troncature |
 
-Le solde épuisé remonte en **400**, pas en 401 ni 403. Sans cas dédié, le
-message générique renvoyait l'utilisateur vers la régénération d'une clé qui
-n'a aucun problème — d'où une branche explicite qui dit que la clé est valide
-et que c'est le compte qu'il faut recharger.
+**Couverture : 26 / 26 faits plantés retrouvés**, vérifiés par script et non à
+l'œil. Y compris les détails secondaires (12 000 utilisateurs de l'ancien
+portail, pénalités contractuelles plafonnées à ~3 000 €) qu'un premier run avait
+laissés de côté — la couverture varie donc d'un appel à l'autre.
 
-**Aucune clé ne fuit** : `grep -c "sk-ant-"` sur la sortie d'erreur complète
-retourne `0`. `.env` est ignoré (`git check-ignore` → `.gitignore:24`) et
-`git ls-files .env` est vide — il n'a jamais été suivi.
+**Aucune invention.** Contrôle systématique de la sortie : les seize valeurs
+numériques du résumé (240 000 €, 180 000 €, 60 000 €, 15 000–25 000 €, 3 000 €,
+12 000, 23 tickets, 80 %, 5 ans, 4 h…) figurent toutes dans la transcription, et
+les six noms propres cités (Kepler, Amélie, Thomas, Karim, Léa, OVH) aussi.
 
-Le reste a été validé **avec un client simulé**, en inspectant la requête que
-le module aurait envoyée :
+**Structure et lecture.** Titre, phrase d'ouverture qui situe la réunion, points
+clés par lot, puis une section décisions/actions nominative. Trois comportements
+qui n'allaient pas de soi :
 
-| Vérification | Obtenu |
-|---|---|
-| Modèle, `max_tokens`, rôle du message | `claude-sonnet-4-6`, 4096, `user` |
-| Transcription transmise sans altération | ✅ identique octet pour octet |
-| `style` injecté dans le prompt système | ✅ y compris une valeur libre |
-| Consigne sur les étiquettes `[SPEAKER_XX]` | ✅ présente |
-| Plusieurs blocs `text` concaténés | ✅ |
-| Blocs non-texte ignorés | ✅ |
-| `stop_reason: max_tokens` | avertissement sur stderr, résumé rendu quand même |
-| `stop_reason: refusal` | erreur claire, aucun fichier écrit |
-| `save_summary()` | `output/{nom}_summary.txt`, relu identique |
-| CLI complet | texte sur stdout, chemin sur stderr, fichier écrit |
+- Le **désaccord** est restitué comme un désaccord — les deux positions sont
+  exposées dans les points clés, et l'arbitrage apparaît séparément dans les
+  décisions, sans que le résumé prenne parti.
+- Le sujet **non tranché** (hébergement) est marqué comme tel, « mis en attente,
+  à rouvrir une fois le paiement sécurisé », au lieu d'être présenté comme
+  décidé ou d'être omis.
+- Les étiquettes `[SPEAKER_XX]` sont **conservées et rapprochées** des prénoms
+  prononcés dans la réunion, sans en inventer. La transcription contenait une
+  incohérence de diarisation volontaire — `SPEAKER_00` pose une question à Karim
+  puis y répond — et le modèle l'a résolue de façon cohérente plutôt que de s'y
+  perdre.
 
-**Sur la transcription utilisée.** Le consigne était « le plus long transcript
-disponible » : c'est `NASA_Artemis_II….txt`, **700 octets, ~123 mots**. Toutes
-les transcriptions de `output/` font moins de 1 Ko. Même avec des crédits, ce
-test aurait donc validé le passage de bout en bout, pas le comportement du
-résumé sur un vrai cours d'une heure — le cas qui motive la fonctionnalité.
+**Garde-fou d'entrée**, vérifié aux bornes : 150 000 caractères passent,
+150 001 lèvent « Transcription trop longue » sans appeler l'API.
+
+**Ce que ce test ne dit pas.** Un seul appel, un seul texte, une seule langue,
+un seul style (`concis`). La variation entre runs est réelle — elle s'est vue
+sur deux appels. Et le texte étant écrit par nos soins, la couverture mesurée
+est un plafond optimiste par rapport à une vraie transcription Whisper.
 
 ### Environnement de test (vérifié le 2026-08-06)
 
@@ -836,7 +867,7 @@ Mac M5 (`Darwin arm64`) — tout est en place :
 | `python-dotenv` | ✅ 1.2.2 |
 | `ffmpeg` | ✅ 8.1.2 dans le `PATH` |
 | `anthropic` | ✅ 0.120.2 |
-| `ANTHROPIC_API_KEY` / `.env` | ⚠️ présente et valide, mais **compte sans crédits** |
+| `ANTHROPIC_API_KEY` / `.env` | ✅ présente, valide, compte crédité |
 | `HF_TOKEN` / `.env` | ✅ présent et valide (token classique, lecture) |
 | Accès `pyannote/speaker-diarization-community-1` | ✅ conditions acceptées |
 
@@ -890,16 +921,17 @@ Mac M5 (`Darwin arm64`) — tout est en place :
   *à l'intérieur* d'un même fichier — Whisper ne détecte que sur la première
   fenêtre, un enregistrement bilingue serait donc transcrit dans une seule
   langue.
-- **`summarize.py` n'a jamais produit un seul résumé** : le compte Anthropic est
-  sans crédits, donc la qualité de la sortie, le respect du `style`, la latence
-  et le coût réel par résumé sont tous inconnus. C'est le premier point à
-  reprendre une fois le compte rechargé.
-- `summarize.py` sur une transcription longue : les fichiers de test font moins
-  de 1 Ko. Le plafond `MAX_TOKENS = 4096` n'a jamais été approché, et la
-  troncature n'a été vérifiée qu'en simulant `stop_reason: max_tokens`.
-- `summarize.py` ne découpe pas les entrées trop longues : une transcription qui
-  dépasse la fenêtre de contexte du modèle partira telle quelle et sera refusée
-  par l'API. Aucun découpage, aucun garde-fou côté client.
+- `summarize.py` n'a jamais été lancé sur une **vraie** transcription Whisper
+  longue : le seul texte de test à l'échelle est écrit à la main (Test 9). Les
+  erreurs typiques d'un ASR — noms propres déformés, chiffres mal reconnus — ne
+  sont donc pas représentées, alors que ce sont elles qui piègent un résumé.
+- `summarize.py` : un seul appel mesuré, un seul style (`concis`), une seule
+  langue. La couverture varie d'un run à l'autre — observé sur deux appels.
+- `summarize.py` ne découpe pas les entrées : au-delà de 150 000 caractères il
+  refuse avec un message clair plutôt que de laisser l'API échouer, mais il n'y
+  a pas de chunking. Le plafond `MAX_TOKENS = 4096` en sortie n'a jamais été
+  approché (1 237 tokens sur le run le plus gros) et la troncature n'a été
+  vérifiée qu'en simulant `stop_reason: max_tokens`.
 - Autres modèles que `whisper-large-v3-mlx`.
 - Tests automatisés dans `tests/` : aucun pour l'instant, tout a été vérifié
   à la main.

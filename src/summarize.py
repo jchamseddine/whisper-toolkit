@@ -12,9 +12,9 @@ import sys
 
 from dotenv import load_dotenv
 
-# Modèle demandé pour ce projet. `claude-sonnet-5` est le Sonnet courant et
-# `claude-opus-5` le modèle le plus capable : changer cette constante suffit.
-DEFAULT_MODEL = "claude-sonnet-4-6"
+# Sonnet courant. `claude-opus-5` est plus capable si le besoin s'en fait
+# sentir : changer cette constante, ou passer --model, suffit.
+DEFAULT_MODEL = "claude-sonnet-5"
 DEFAULT_STYLE = "concis"
 
 API_KEY_ENV_VAR = "ANTHROPIC_API_KEY"
@@ -23,6 +23,12 @@ CONSOLE_URL = "https://console.anthropic.com/settings/keys"
 # Un résumé est court par nature ; la borne sert à éviter une facture surprise
 # si le modèle part en digression. La troncature est détectée plus bas.
 MAX_TOKENS = 4096
+
+# Garde-fou d'entrée, très en dessous de la fenêtre de contexte du modèle
+# (1 M tokens, soit plusieurs millions de caractères). Il ne sert pas à
+# protéger l'API mais à transformer un refus distant obscur en erreur locale
+# lisible, avant de payer l'appel. Pas de découpage : hors usage actuel.
+MAX_INPUT_CHARS = 150_000
 
 MISSING_KEY_HELP = (
     f"Clé API Anthropic introuvable.\n"
@@ -129,6 +135,13 @@ def summarize_text(
     """Résume une transcription et retourne le texte du résumé."""
     if not text.strip():
         raise ValueError("Transcription vide : rien à résumer.")
+
+    if len(text) > MAX_INPUT_CHARS:
+        raise ValueError(
+            f"Transcription trop longue : {len(text):,} caractères pour un "
+            f"maximum de {MAX_INPUT_CHARS:,}.\n"
+            f"Découpe le fichier et résume chaque partie séparément.".replace(",", " ")
+        )
 
     key = _resolve_api_key(api_key)
 
