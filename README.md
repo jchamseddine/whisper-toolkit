@@ -531,10 +531,10 @@ folder ──> list_audio_files()          (filters on SUPPORTED_EXTENSIONS)
 It imports `SUPPORTED_EXTENSIONS` from `transcribe.py` instead of redefining it:
 adding a format there makes it available here without touching anything.
 
-**Robustesse aux échecs partiels.** Chaque fichier est traité dans son propre
-`try/except` : un fichier illisible n'interrompt pas le lot. Le résumé final
-liste les échecs avec leur raison, et le processus sort en code 1 si au moins un
-fichier a échoué — pratique pour enchaîner dans un script.
+**Robustness to partial failures.** Each file is processed inside its own
+`try/except`: an unreadable file does not interrupt the batch. The final report
+lists the failures with their reason, and the process exits with code 1 if at
+least one file failed — handy for chaining inside a script.
 
 **Resuming: that is the default behaviour.** Before processing a file,
 `batch.py` looks at whether its output already exists in `output/`; if so, it
@@ -890,648 +890,643 @@ step.
 | Folder watching | ❌ | — | — | deliberately not implemented |
 | `tests/` | ❌ empty | — | — | no automated tests |
 
-### Transcriptions réelles exécutées (2026-08-06)
+### Real transcriptions run (2026-08-06)
 
-Les fichiers audio de test vivent dans `test-audio/`, **ignoré par git** — ce
-dépôt est public, aucun enregistrement réel ne doit y être versionné. Seule
-exception : la fixture entièrement synthétique du test 4. Le contenu des
-transcriptions d'enregistrements réels n'est pas reproduit ici, même raison.
+The test audio files live in `test-audio/`, **ignored by git** — this
+repository is public, no real recording must be versioned in it. The only
+exception: the entirely synthetic fixture of test 4. The content of transcripts
+of real recordings is not reproduced here, for the same reason.
 
-**Test 1 — échantillon synthétique (voix macOS `Thomas`, fr_FR, 6,3 s, `.m4a`)**
+**Test 1 — synthetic sample (macOS `Thomas` voice, fr_FR, 6.3 s, `.m4a`)**
 
 | | |
 |---|---|
-| **Texte attendu** | « Bonjour, ceci est un test de transcription pour le projet whisper toolkit. Il fait beau aujourd'hui à Paris. » |
-| **Texte obtenu** | « Bonjour, ceci est un test de transcription pour le projet Wisp et Tolkien. Il fait beau aujourd'hui à Paris. » |
+| **Expected text** | « Bonjour, ceci est un test de transcription pour le projet whisper toolkit. Il fait beau aujourd'hui à Paris. » |
+| **Text obtained** | « Bonjour, ceci est un test de transcription pour le projet Wisp et Tolkien. Il fait beau aujourd'hui à Paris. » |
 
-Seul écart : « whisper toolkit » → « Wisp et Tolkien ». C'est un artefact de
-l'échantillon, pas du modèle — la voix française prononce ces deux mots anglais
-à la française, et Whisper transcrit fidèlement ce qu'il entend. Ponctuation,
-accents et apostrophes sont corrects.
+The only discrepancy: "whisper toolkit" → "Wisp et Tolkien". That is an artefact
+of the sample, not of the model — the French voice pronounces those two English
+words the French way, and Whisper faithfully transcribes what it hears.
+Punctuation, accents and apostrophes are correct.
 
-**Test 2 — vocal WhatsApp réel (voix humaine, fr, 2,47 s)**
+**Test 2 — real WhatsApp voice note (human voice, fr, 2.47 s)**
 
-Source : `.opus` mono 48 kHz (conteneur ogg, 18,6 kbit/s). Transcription
-**correcte** : phrase cohérente, ponctuation et accents corrects, malgré la
-forte compression WhatsApp et une durée très courte. Contenu non reproduit
-(dépôt public).
+Source: `.opus` mono 48 kHz (ogg container, 18.6 kbit/s). Transcription
+**correct**: coherent sentence, correct punctuation and accents, despite
+WhatsApp's heavy compression and a very short duration. Content not reproduced
+(public repository).
 
-Le même extrait a été passé sous quatre formes — `.opus`, `.ogg` (opus remuxé),
-`.ogg` (vorbis stéréo) et `.wav` 16 kHz mono — avec une sortie **identique au
-caractère près** dans les quatre cas.
+The same excerpt was run in four forms — `.opus`, `.ogg` (remuxed opus), `.ogg`
+(stereo vorbis) and `.wav` 16 kHz mono — with output **identical down to the
+character** in all four cases.
 
-> **Pourquoi aucune conversion n'est faite dans le code.** `mlx_whisper`
-> décode déjà tout via ffmpeg, en imposant lui-même 16 kHz mono
-> (`ffmpeg -i <fichier> -f s16le -ac 1 -ar 16000 -`, cf. `mlx_whisper/audio.py`).
-> Convertir en amont referait donc exactement le même travail, en double et avec
-> un fichier temporaire à gérer. `SUPPORTED_EXTENSIONS` sert uniquement de
-> garde-fou pour rejeter tôt un fichier manifestement non audio ; tout format lu
-> par ffmpeg fonctionne dès qu'il y figure.
+> **Why no conversion is done in the code.** `mlx_whisper` already decodes
+> everything through ffmpeg, imposing 16 kHz mono itself
+> (`ffmpeg -i <file> -f s16le -ac 1 -ar 16000 -`, see `mlx_whisper/audio.py`).
+> Converting upstream would therefore redo exactly the same work, twice over and
+> with a temporary file to manage. `SUPPORTED_EXTENSIONS` serves only as a guard
+> rail to reject an obviously non-audio file early; any format ffmpeg reads
+> works as soon as it appears there.
 
-**Performance** (Mac M5, `whisper-large-v3-mlx`) :
+**Performance** (M5 Mac, `whisper-large-v3-mlx`):
 
-| Run | Durée | Détail |
+| Run | Duration | Detail |
 |---|---|---|
-| 1er | 4 min 16 s | dont 3 min 49 s de téléchargement du modèle (~3 Go) |
-| Suivants | 3,1 – 3,6 s | modèle en cache, pour 2,5 – 6,3 s d'audio |
+| 1st | 4 min 16 s | of which 3 min 49 s downloading the model (~3 GB) |
+| Subsequent | 3.1 – 3.6 s | model cached, for 2.5 – 6.3 s of audio |
 
-Le temps est dominé par le chargement du modèle, pas par la durée de l'audio :
-ces mesures ne disent rien du débit sur un fichier long.
+Time is dominated by loading the model, not by the audio's duration: these
+measurements say nothing about throughput on a long file.
 
-### Test 3 — `diarize.py`, pipeline complet validé (2026-08-06)
+### Test 3 — `diarize.py`, full pipeline validated (2026-08-06)
 
-**La diarisation tourne de bout en bout.** Après acceptation des conditions de
-`pyannote/speaker-diarization-community-1`, le pipeline entier s'exécute sans
-erreur sur le vocal WhatsApp (2,47 s, `.opus`) :
+**Diarization runs end to end.** After accepting the terms of
+`pyannote/speaker-diarization-community-1`, the entire pipeline runs without
+error on the WhatsApp voice note (2.47 s, `.opus`):
 
-| Étape du pipeline | Statut | Détail mesuré |
+| Pipeline step | Status | Measured detail |
 |---|---|---|
-| `whisperx.load_audio` | ✅ | 39 256 échantillons à 16 kHz |
+| `whisperx.load_audio` | ✅ | 39,256 samples at 16 kHz |
 | `whisperx.load_model` | ✅ | `large-v3` int8 CPU |
-| VAD pyannote | ✅ | exécutée sans erreur |
-| `.transcribe()` | ✅ | langue `fr` détectée seule (confiance 1.00), 1 segment |
-| `load_align_model` + `align` | ✅ | 9 mots alignés, segment 0,28 s → 2,40 s |
-| `DiarizationPipeline` | ✅ | `community-1` chargée sur CPU |
-| `assign_word_speakers` | ✅ | clé `speaker` présente sur le segment |
-| `save_diarized_transcript()` | ✅ | fichier `output/..._diarized.txt` écrit et relu |
+| pyannote VAD | ✅ | ran without error |
+| `.transcribe()` | ✅ | `fr` language detected on its own (confidence 1.00), 1 segment |
+| `load_align_model` + `align` | ✅ | 9 words aligned, segment 0.28 s → 2.40 s |
+| `DiarizationPipeline` | ✅ | `community-1` loaded on CPU |
+| `assign_word_speakers` | ✅ | `speaker` key present on the segment |
+| `save_diarized_transcript()` | ✅ | `output/..._diarized.txt` file written and re-read |
 
-Sortie : une ligne au format `[SPEAKER_00] <texte>`, soit exactement le format
-attendu (contenu non reproduit, dépôt public). **Run complet : 18,1 s**, modèles
-en cache.
+Output: one line in `[SPEAKER_00] <text>` format, exactly the expected shape
+(content not reproduced, public repository). **Full run: 18.1 s**, models cached.
 
-Un seul locuteur ici, l'échantillon étant mono-locuteur : ce test valide
-l'exécution du pipeline, pas la séparation des voix. Celle-ci fait l'objet du
-test 4.
+A single speaker here, the sample being single-speaker: this test validates the
+pipeline's execution, not voice separation. That is what test 4 is for.
 
-**Historique du blocage** (résolu). Le premier run avec token valide échouait
-en **403** : les conditions de `community-1` n'avaient pas été acceptées sur le
-compte, alors que celles de la famille 3.1 l'étaient. Aucun contournement par
-paramètre n'existait — avec `pyannote.audio` 4.0.7, pointer explicitement
-`speaker-diarization-3.1` réclame quand même `plda/xvec_transform.npz`, hébergé
-dans `community-1`, et retombe sur un 401.
+**History of the blockage** (resolved). The first run with a valid token failed
+with a **403**: `community-1`'s terms had not been accepted on the account,
+although the 3.1 family's had. No parameter offered a way around it — with
+`pyannote.audio` 4.0.7, pointing explicitly at `speaker-diarization-3.1` still
+demands `plda/xvec_transform.npz`, hosted in `community-1`, and falls back to a
+401.
 
-> ℹ️ **Le token n'est requis qu'au premier téléchargement.** Une fois les poids
-> pyannote en cache local, `Pipeline.from_pretrained` ne le consulte plus : un
-> token invalide, ou absent, passe alors sans erreur. Constaté en tentant de
-> rejouer les cas d'erreur après un run réussi.
+> ℹ️ **The token is only required at the first download.** Once the pyannote
+> weights are in the local cache, `Pipeline.from_pretrained` stops consulting
+> it: an invalid token, or none at all, then passes without error. Observed
+> while trying to replay the error cases after a successful run.
 
-**Écart entre les deux backends.** Sur le même extrait, faster-whisper et
-mlx-whisper produisent des transcriptions qui diffèrent d'un mot (58 vs
-57 caractères). Rien d'anormal — deux implémentations, deux quantifications —
-mais à garder en tête : les deux pipelines ne sont pas interchangeables au
-caractère près.
+**Divergence between the two backends.** On the same excerpt, faster-whisper and
+mlx-whisper produce transcripts that differ by one word (58 vs 57 characters).
+Nothing abnormal — two implementations, two quantizations — but worth keeping in
+mind: the two pipelines are not interchangeable down to the character.
 
-**Le coût du CPU est mesuré, pas supposé** (modèles en cache) :
+**The CPU cost is measured, not assumed** (models cached):
 
-| Étape | Durée |
+| Step | Duration |
 |---|---|
-| `load_model` | 5,6 s |
-| `.transcribe()` | **10,4 s** pour 2,47 s d'audio |
-| `load_align_model` | 0,3 s |
-| `align` | 0,1 s |
-| **Total** | **17,6 s** |
+| `load_model` | 5.6 s |
+| `.transcribe()` | **10.4 s** for 2.47 s of audio |
+| `load_align_model` | 0.3 s |
+| `align` | 0.1 s |
+| **Total** | **17.6 s** |
 
-Soit **~4× plus lent que le temps réel** sur la seule transcription, là où
-`transcribe.py` traite le même fichier en 3,1 s de bout en bout — l'écart
-attendu entre MLX/Metal et CTranslate2/CPU. Premier run : 15 min 42, dominé par
-le téléchargement des modèles (`large-v3` CTranslate2 + wav2vec2 français).
+That is **~4× slower than real time** on transcription alone, where
+`transcribe.py` handles the same file in 3.1 s end to end — the expected gap
+between MLX/Metal and CTranslate2/CPU. First run: 15 min 42, dominated by
+downloading the models (`large-v3` CTranslate2 + French wav2vec2).
 
-**Erreurs vérifiées en conditions réelles :**
+**Errors verified under real conditions:**
 
-Les trois cas de token sont désormais **distingués**, chacun vérifié contre une
-vraie réponse HTTP :
+The three token cases are now **told apart**, each checked against a real HTTP
+response:
 
-| Cas | Message produit | Vérifié avec |
+| Case | Message produced | Verified with |
 |---|---|---|
-| Token absent | « Token Hugging Face introuvable » + lien vers les réglages de token | `load_dotenv` neutralisé, `HF_TOKEN` retiré |
-| Token invalide (**401**) | « Token refusé » → régénérer le token | token bidon sur un dépôt gated non caché |
-| Conditions non acceptées (**403**) | « Accès refusé au modèle *X* » → lien direct vers la page HF **du modèle demandé** | token valide sur `pyannote/speaker-diarization` |
-| Fichier introuvable | `Fichier introuvable : ...` | chemin inexistant |
+| Token missing | "Hugging Face token not found" + link to the token settings | `load_dotenv` neutralised, `HF_TOKEN` removed |
+| Invalid token (**401**) | "Token rejected" → regenerate the token | bogus token on an uncached gated repo |
+| Terms not accepted (**403**) | "Access denied to model *X*" → direct link to the HF page **of the requested model** | valid token on `pyannote/speaker-diarization` |
+| File not found | `File not found: ...` | non-existent path |
 
-Les quatre sortent en `exit 1`. Le cas 403 nomme le modèle réellement demandé,
-donc le lien reste correct même avec `--diarization-model`.
+All four exit with `exit 1`. The 403 case names the model actually requested, so
+the link stays correct even with `--diarization-model`.
 
-### Test 4 — séparation de deux locuteurs (2026-08-07)
+### Test 4 — separating two speakers (2026-08-07)
 
-Premier test qui valide la **raison d'être** de la diarisation, et non seulement
-son exécution. Fixture : `test-audio/two_voices_generated.wav`, 9,5 s.
+The first test that validates diarization's **reason for existing**, and not
+merely its execution. Fixture: `test-audio/two_voices_generated.wav`, 9.5 s.
 
-**Vérité terrain**, établie par mesure et non par confiance :
+**Ground truth**, established by measurement rather than by trust:
 
 | | |
 |---|---|
-| Voix 1 | `Amélie` (fr_CA), F0 médiane **225 Hz**, 0 → 4,06 s |
-| Voix 2 | `Thomas` (fr_FR), F0 médiane **128 Hz**, 4,06 → 9,48 s |
-| Bascule | **4,06 s** (fin de la première réplique) |
+| Voice 1 | `Amélie` (fr_CA), median F0 **225 Hz**, 0 → 4.06 s |
+| Voice 2 | `Thomas` (fr_FR), median F0 **128 Hz**, 4.06 → 9.48 s |
+| Switch | **4.06 s** (end of the first line) |
 
-**Résultat**, avec `--num-speakers 2` :
+**Result**, with `--num-speakers 2`:
 
 | start | end | speaker | voix réelle |
 |---|---|---|---|
 | 0,23 s | 4,08 s | `SPEAKER_01` | Amélie |
 | 4,13 s | 9,36 s | `SPEAKER_00` | Thomas |
 
-| Critère | Attendu | Obtenu | |
+| Criterion | Expected | Obtained | |
 |---|---|---|---|
-| Nombre de locuteurs | 2 | 2 | ✅ |
-| Nombre de segments | 2 | 2 | ✅ |
-| Point de bascule | 4,06 s | 4,08 – 4,13 s | ✅ à **±70 ms** |
-| Mélange de voix | aucun | aucun | ✅ |
+| Number of speakers | 2 | 2 | ✅ |
+| Number of segments | 2 | 2 | ✅ |
+| Switch point | 4.06 s | 4.08 – 4.13 s | ✅ within **±70 ms** |
+| Voices mixed up | none | none | ✅ |
 
-L'écart de 20 à 70 ms correspond au silence entre les deux répliques : les
-bornes tombent de part et d'autre de la jonction réelle. Run complet : 17,5 s.
+The 20 to 70 ms discrepancy corresponds to the silence between the two lines:
+the boundaries fall on either side of the real junction. Full run: 17.5 s.
 
-> ⚠️ **Les labels `SPEAKER_XX` ne suivent pas l'ordre d'apparition.** Ici Amélie
-> parle en premier et reçoit `SPEAKER_01`, tandis que Thomas reçoit
-> `SPEAKER_00`. Ne jamais supposer que `SPEAKER_00` est le premier à parler :
-> les identifiants sont arbitraires et stables seulement à l'intérieur d'un run.
+> ⚠️ **`SPEAKER_XX` labels do not follow the order of appearance.** Here Amélie
+> speaks first and receives `SPEAKER_01`, while Thomas receives `SPEAKER_00`.
+> Never assume `SPEAKER_00` is the first to speak: the identifiers are arbitrary
+> and stable only within a single run.
 
-**À propos de la fixture.** `test-audio/two_voices_generated.wav` est le seul
-fichier audio versionné du dépôt (exception explicite dans `.gitignore`). Il est
-**intégralement synthétique**, généré avec la commande macOS `say` à partir de
-deux voix système, puis concaténé avec ffmpeg :
+**About the fixture.** `test-audio/two_voices_generated.wav` is the repository's
+only versioned audio file (an explicit exception in `.gitignore`). It is
+**entirely synthetic**, generated with the macOS `say` command from two system
+voices, then concatenated with ffmpeg:
 
 ```bash
-say -v "Amélie" -o a.aiff "…"      # attention à l'accent, voir ci-dessous
+say -v "Amélie" -o a.aiff "…"      # mind the accent, see below
 say -v Thomas   -o b.aiff "…"
-# conversion en wav 16 kHz mono, puis concat ffmpeg
+# conversion to 16 kHz mono wav, then ffmpeg concat
 ```
 
-Aucune voix réelle, aucune donnée personnelle. Il sert de fixture de
-non-régression pour `diarize.py`.
+No real voice, no personal data. It serves as a non-regression fixture for
+`diarize.py`.
 
-> ⚠️ **Piège `say` : le nom de voix doit être exact, accents compris.**
-> `say -v Amelie` (sans accent) ne lève **aucune erreur** — la commande retombe
-> silencieusement sur la voix par défaut. On obtient alors deux extraits de la
-> *même* voix, et une fixture qui ne teste rien. Le contrôle qui l'a révélé :
-> mesurer la F0 des deux extraits avant de s'en servir. 225 Hz contre 128 Hz
-> valide la fixture ; deux valeurs voisines la disqualifient.
+> ⚠️ **`say` trap: the voice name has to be exact, accents included.**
+> `say -v Amelie` (without the accent) raises **no error** — the command
+> silently falls back to the default voice. You then get two excerpts of the
+> *same* voice, and a fixture that tests nothing. The check that revealed it:
+> measuring the F0 of both excerpts before using them. 225 Hz against 128 Hz
+> validates the fixture; two neighbouring values disqualify it.
 
-### Test 5 — `batch.py`, robustesse aux échecs partiels (2026-08-07)
+### Test 5 — `batch.py`, robustness to partial failures (2026-08-07)
 
-Dossier de test monté hors dépôt, contenant volontairement de quoi faire échouer
-le lot :
+A test folder set up outside the repository, deliberately containing what it
+takes to make the batch fail:
 
-| Fichier | Nature | Attendu |
+| File | Nature | Expected |
 |---|---|---|
-| `01_deux_voix.wav` | fixture synthétique 2 voix, 9,5 s | traité |
-| `02_vocal.wav` | enregistrement réel, mono-locuteur | traité |
-| `03_corrompu.wav` | fichier texte renommé en `.wav` | **échec isolé** |
-| `04_ignore.txt` | extension non audio | ignoré au listage |
-| `sous_dossier/` | répertoire | ignoré au listage |
+| `01_deux_voix.wav` | synthetic 2-voice fixture, 9.5 s | processed |
+| `02_vocal.wav` | real recording, single speaker | processed |
+| `03_corrompu.wav` | text file renamed to `.wav` | **isolated failure** |
+| `04_ignore.txt` | non-audio extension | ignored at listing |
+| `sous_dossier/` | directory | ignored at listing |
 
-**Résultat, mode transcription** (`python src/batch.py <dossier>`) :
+**Result, transcription mode** (`python src/batch.py <folder>`):
 
-| Critère | Obtenu | |
+| Criterion | Obtained | |
 |---|---|---|
-| Fichiers listés | 3 sur 5 entrées | ✅ `.txt` et dossier écartés |
-| Traités avec succès | 2 | ✅ |
-| Échecs | 1 (`03_corrompu.wav`) | ✅ isolé |
-| Le lot s'est poursuivi après l'échec | oui | ✅ |
-| Sortie produite pour le fichier en échec | aucune | ✅ |
-| Code de sortie | 1 | ✅ échec partiel signalé |
-| Durée | 6,9 s | |
+| Files listed | 3 out of 5 entries | ✅ `.txt` and folder set aside |
+| Processed successfully | 2 | ✅ |
+| Failures | 1 (`03_corrompu.wav`) | ✅ isolated |
+| The batch carried on after the failure | yes | ✅ |
+| Output produced for the failing file | none | ✅ |
+| Exit code | 1 | ✅ partial failure reported |
+| Duration | 6.9 s | |
 
-**Résultat, mode diarisation** (`--diarize --num-speakers 2`) : même comptage,
-2 succès et 1 échec isolé, sorties `*_diarized.txt` produites, 39,5 s. La borne
-`--num-speakers 2` est bien parvenue à pyannote — il l'a signalée comme
-inatteignable sur le fichier mono-locuteur, ce qui confirme la propagation du
-paramètre à travers `batch.py`.
+**Result, diarization mode** (`--diarize --num-speakers 2`): same counts, 2
+successes and 1 isolated failure, `*_diarized.txt` outputs produced, 39.5 s. The
+`--num-speakers 2` bound did reach pyannote — it reported it as unreachable on
+the single-speaker file, which confirms the parameter propagates through
+`batch.py`.
 
-Cas limites vérifiés séparément : dossier inexistant → message clair et `exit 1` ;
-dossier sans aucun fichier audio → message et `exit 0`, sans erreur.
+Edge cases checked separately: non-existent folder → clear message and
+`exit 1`; folder with no audio file at all → message and `exit 0`, without
+error.
 
-> **Lisibilité du résumé.** Quand ffmpeg échoue, il recrache sa bannière de
-> compilation : l'erreur brute du fichier corrompu fait **13 lignes et
-> 1173 caractères**, ce qui noyait tout le résumé du lot. `short_reason()` la
-> réduit à sa première ligne pour l'affichage. L'erreur complète reste
-> accessible dans le dict retourné par `process_folder()`.
+> **Readability of the report.** When ffmpeg fails, it spits out its build
+> banner: the raw error of the corrupted file is **13 lines and 1,173
+> characters**, which drowned the entire batch report. `short_reason()` reduces
+> it to its first line for display. The full error stays reachable in the dict
+> returned by `process_folder()`.
 
-### Test 6 — reprise de `batch.py` (2026-08-07)
+### Test 6 — `batch.py` resuming (2026-08-07)
 
-Exécuté sur `test-audio/`, qui contient **6 fichiers tous traitables**
-(`.opus`, `.ogg` ×2, `.wav` ×3), après avoir mis `output/` de côté pour partir
-d'un état vierge. Trois lancements successifs, en mode transcription :
+Run on `test-audio/`, which contains **6 files, all processable** (`.opus`,
+`.ogg` ×2, `.wav` ×3), after setting `output/` aside to start from a clean
+state. Three successive runs, in transcription mode:
 
-| # | Commande | Traités | Sautés | Sortie |
+| # | Command | Processed | Skipped | Output |
 |---|---|---|---|---|
-| 1 | `batch.py test-audio/` | 6 | 0 | 6 `.txt` créés, 8,7 s |
-| 2 | `batch.py test-audio/` | 0 | **6** | aucune réécriture, `exit 0` |
-| 3 | `batch.py test-audio/ --force` | 6 | 0 | 6 `.txt` réécrits |
+| 1 | `batch.py test-audio/` | 6 | 0 | 6 `.txt` created, 8.7 s |
+| 2 | `batch.py test-audio/` | 0 | **6** | no rewriting, `exit 0` |
+| 3 | `batch.py test-audio/ --force` | 6 | 0 | 6 `.txt` rewritten |
 
-Le run 3 a été validé sur les **mtimes** et non sur le seul affichage : les six
-horodatages passent de `12:03:4x` à `12:04:0x`, donc les fichiers ont réellement
-été réécrits, pas simplement re-annoncés.
+Run 3 was validated on the **mtimes** and not on the display alone: the six
+timestamps move from `12:03:4x` to `12:04:0x`, so the files really were
+rewritten, not merely re-announced.
 
-Cas complémentaires vérifiés :
+Complementary cases checked:
 
-| Scénario | Attendu | Obtenu |
+| Scenario | Expected | Obtained |
 |---|---|---|
-| Suppression d'**une** sortie sur 6, relance | 1 traité, 5 sautés | ✅ |
-| `--diarize` alors que les 6 `.txt` existent | rien de sauté | ✅ 2/2 diarisés |
-| `--diarize` relancé après coup | 2 sautés | ✅ |
-| Transcription relancée après diarisation | 2 sautés | ✅ |
+| Deleting **one** output out of 6, rerun | 1 processed, 5 skipped | ✅ |
+| `--diarize` while the 6 `.txt` exist | nothing skipped | ✅ 2/2 diarized |
+| `--diarize` rerun afterwards | 2 skipped | ✅ |
+| Transcription rerun after diarization | 2 skipped | ✅ |
 
-> **Le test qui compte vraiment est celui du croisement des modes.** Une
-> implémentation naïve qui chercherait « une sortie quelconque pour ce fichier »
-> aurait sauté la diarisation de fichiers déjà transcrits — et le lot aurait
-> paru réussir en ne produisant rien. C'est pourquoi la sortie attendue est
-> demandée à `transcript_path()` / `diarized_transcript_path()` selon le mode,
-> plutôt que reconstruite dans `batch.py`.
+> **The test that really counts is the one crossing the modes.** A naive
+> implementation looking for "any output for this file" would have skipped the
+> diarization of already-transcribed files — and the batch would have appeared
+> to succeed while producing nothing. That is why the expected output is asked
+> of `transcript_path()` / `diarized_transcript_path()` depending on the mode,
+> rather than rebuilt inside `batch.py`.
 
 ### Test 7 — `youtube.py` (2026-08-07)
 
-Vidéo de test : `V0oo_Nybo6w`, « NASA Artemis II: Counting Down to Our Next Moon
-Mission », 60 s, chaîne officielle NASA. Choisie parce qu'une production de la
-NASA est dans le domaine public (œuvre du gouvernement américain) et que sa
-durée garde le test rapide. **Ni l'audio ni la transcription ne sont versionnés**
-— `test-audio/*` et `output/` sont ignorés, vérifié avec `git check-ignore`.
+Test video: `V0oo_Nybo6w`, "NASA Artemis II: Counting Down to Our Next Moon
+Mission", 60 s, official NASA channel. Chosen because a NASA production is in
+the public domain (a work of the US government) and because its duration keeps
+the test fast. **Neither the audio nor the transcript is versioned** —
+`test-audio/*` and `output/` are ignored, checked with `git check-ignore`.
 
-**Choix du format : mesuré, pas supposé.** Le point de départ était « `.wav` ou
-`.m4a` ». La mesure a montré que la question était mal posée.
+**Format choice: measured, not assumed.** The starting point was "`.wav` or
+`.m4a`". The measurement showed the question was badly posed.
 
-| Source | Conteneur | Temps | Mots | Réf. sous-titres |
+| Source | Container | Time | Words | Subtitle ref. |
 |---|---|---|---|---|
-| flux AAC | `.m4a` | 20,1 s | 338 | 121 |
-| flux AAC | `.wav` | 20,3 s | 338 | 121 |
-| flux Opus | `.m4a` | 5,0 s | 124 | 121 |
-| flux Opus | `.wav` | 5,0 s | 123 | 121 |
+| AAC stream | `.m4a` | 20.1 s | 338 | 121 |
+| AAC stream | `.wav` | 20.3 s | 338 | 121 |
+| Opus stream | `.m4a` | 5.0 s | 124 | 121 |
+| Opus stream | `.wav` | 5.0 s | 123 | 121 |
 
-À contenu identique, les deux conteneurs donnent **exactement** le même résultat
-(3 exécutions chacun, chiffres stables au dixième). Le conteneur n'entre donc pas
-en compte ; seul le **flux source** compte. Sur cette vidéo, le flux AAC part en
-boucle d'hallucination : 338 mots au lieu de 121, dont `the` **77 fois**, soit
-23 % du texte.
+With identical content, the two containers give **exactly** the same result (3
+runs each, figures stable to the tenth). The container therefore does not come
+into it; only the **source stream** matters. On this video, the AAC stream goes
+into a hallucination loop: 338 words instead of 121, including `the` **77
+times**, i.e. 23% of the text.
 
-Vérifié sur 3 autres vidéos NASA courtes, transcription comparée aux sous-titres
-automatiques YouTube pris comme référence :
+Checked on 3 other short NASA videos, transcription compared against YouTube's
+automatic subtitles taken as a reference:
 
-| Vidéo | AAC | Opus | Réf. |
+| Video | AAC | Opus | Ref. |
 |---|---|---|---|
-| `XYMuC2MDbwo` | 7,8 s / 176 mots | 6,1 s / 179 mots | 168 |
-| `MLgYJh6OFbY` | 36,5 s / 143 mots | 15,1 s / 130 mots | 130 |
-| `oqRwrlJbjOg` | 33,3 s / 141 mots | 5,6 s / 132 mots | 131 |
+| `XYMuC2MDbwo` | 7.8 s / 176 words | 6.1 s / 179 words | 168 |
+| `MLgYJh6OFbY` | 36.5 s / 143 words | 15.1 s / 130 words | 130 |
+| `oqRwrlJbjOg` | 33.3 s / 141 words | 5.6 s / 132 words | 131 |
 
-Le flux Opus est plus rapide dans les 4 cas (jusqu'à 6×) et plus proche de la
-référence. D'où le choix de `.opus` : meilleure entrée pour Whisper, aucun
-ré-encodage (`-acodec copy`, vérifié dans la ligne de commande ffmpeg émise par
-yt-dlp), et 12× plus léger que le wav.
+The Opus stream is faster in all 4 cases (up to 6×) and closer to the reference.
+Hence the choice of `.opus`: a better input for Whisper, no re-encoding
+(`-acodec copy`, verified in the ffmpeg command line yt-dlp emits), and 12×
+lighter than the wav.
 
-> ⚠️ **Le premier run réel a produit une transcription entièrement fausse.**
-> L'audio est anglais, mais `transcribe.py` forçait alors `language="fr"` :
-> Whisper a rendu un texte français inventé, fluide et plausible, qui n'avait
-> qu'un rapport lointain avec l'original. Rien dans la sortie ne signalait le
-> problème. Après correction, la transcription correspond aux sous-titres
-> YouTube (123 mots contre 121 de référence).
+> ⚠️ **The first real run produced an entirely wrong transcription.** The audio
+> is English, but `transcribe.py` was forcing `language="fr"` at the time:
+> Whisper returned an invented French text, fluent and plausible, that bore only
+> a distant relation to the original. Nothing in the output flagged the problem.
+> After the fix, the transcription matches the YouTube subtitles (123 words
+> against 121 in the reference).
 >
-> Le correctif appliqué ici était local à `youtube.py`. Le défaut valait aussi
-> pour `transcribe.py` et `batch.py` : il a été retiré à la racine au Test 8.
+> The fix applied here was local to `youtube.py`. The flaw also held for
+> `transcribe.py` and `batch.py`: it was removed at the root in Test 8.
 
-**Résultats fonctionnels :**
+**Functional results:**
 
-| Scénario | Attendu | Obtenu |
+| Scenario | Expected | Obtained |
 |---|---|---|
-| CLI, détection auto | transcription anglaise correcte | ✅ 8,6 s bout en bout |
-| CLI, `--language en` | identique | ✅ |
-| CLI, `--diarize` | segments étiquetés | ✅ 13 segments, 2 locuteurs, 73,5 s |
-| Audio téléchargé | dans `test-audio/`, ignoré | ✅ `.gitignore:44` |
-| Transcription | dans `output/`, ignorée | ✅ `.gitignore:54` |
+| CLI, auto-detection | correct English transcription | ✅ 8.6 s end to end |
+| CLI, `--language en` | identical | ✅ |
+| CLI, `--diarize` | labelled segments | ✅ 13 segments, 2 speakers, 73.5 s |
+| Downloaded audio | in `test-audio/`, ignored | ✅ `.gitignore:44` |
+| Transcript | in `output/`, ignored | ✅ `.gitignore:54` |
 
-**Gestion d'erreurs**, messages vérifiés sur de vraies URL :
+**Error handling**, messages verified on real URLs:
 
-| Cas | Obtenu |
+| Case | Obtained |
 |---|---|
-| Identifiant inexistant | « Vidéo indisponible … supprimée, privée, ou identifiant erroné » |
-| Chaîne qui n'est pas une URL | idem (yt-dlp la traite comme un identifiant) |
-| URL non-YouTube en 404 | « Échec du téléchargement » + détail yt-dlp |
-| URL de playlist pure | refus explicite, « 8 vidéos … passe l'URL d'une vidéo » |
-| URL `watch?v=…&list=…` | la seule vidéo est traitée, titre conservé |
+| Non-existent id | « Vidéo indisponible … supprimée, privée, ou identifiant erroné » |
+| A string that is not a URL | same (yt-dlp treats it as an id) |
+| Non-YouTube URL returning 404 | « Échec du téléchargement » + yt-dlp detail |
+| Pure playlist URL | explicit refusal, « 8 vidéos … passe l'URL d'une vidéo » |
+| `watch?v=…&list=…` URL | the single video is processed, title preserved |
 
-> ⚠️ **Une URL de playlist aurait téléchargé 8 vidéos sous un seul nom.**
-> `noplaylist` ne règle que les URL `watch?v=…&list=…` ; sur une URL de
-> playlist pure, yt-dlp renvoie les 8 entrées. Comme le modèle de nom est fixé
-> avant le téléchargement, les 8 fichiers se seraient écrasés l'un l'autre et
-> seule la dernière vidéo aurait été transcrite — sous le titre de la playlist,
-> sans le moindre avertissement. D'où le refus explicite dans `download_audio()`.
+> ⚠️ **A playlist URL would have downloaded 8 videos under a single name.**
+> `noplaylist` only settles `watch?v=…&list=…` URLs; on a pure playlist URL,
+> yt-dlp returns all 8 entries. Since the name template is fixed before
+> downloading, the 8 files would have overwritten one another and only the last
+> video would have been transcribed — under the playlist's title, without the
+> slightest warning. Hence the explicit refusal in `download_audio()`.
 >
-> Le garde-fou a lui-même coûté une correction : `extract_flat=True`, ajouté
-> pour ne pas résoudre les 8 entrées, aplatissait *aussi* la vidéo seule, qui
-> perdait son titre et retombait sur l'identifiant. C'est `in_playlist` qu'il
-> faut, pas `True`.
+> The guard itself cost a fix: `extract_flat=True`, added so as not to resolve
+> the 8 entries, *also* flattened the single video, which lost its title and
+> fell back to the id. `in_playlist` is what is needed, not `True`.
 
-Le message brut de yt-dlp était affiché **en plus** du message traduit :
-`quiet=True` ne couvre pas les erreurs, qui partent sur stderr quoi qu'il
-arrive. Un `logger` muet passé à `YoutubeDL` règle le problème.
+yt-dlp's raw message was displayed **in addition to** the rephrased one:
+`quiet=True` does not cover errors, which go to stderr whatever happens. A mute
+`logger` passed to `YoutubeDL` settles it.
 
-Cas **non testés** faute de pouvoir les provoquer : vidéo réellement privée,
-vidéo bloquée par région. Leur détection repose sur des motifs de message
-(`private video`, `not available in your country`) repris de la documentation
-yt-dlp, jamais déclenchés en conditions réelles.
+Cases **not tested** for want of being able to provoke them: a genuinely private
+video, a region-blocked video. Their detection rests on message patterns
+(`private video`, `not available in your country`) taken from the yt-dlp
+documentation, never triggered under real conditions.
 
-Nommage vérifié unitairement — accents translittérés (`Café à la crème` →
-`Cafe_a_la_creme`), titre japonais et titre de ponctuation pure repliés sur
-l'identifiant, troncature à 80 caractères, et `../../etc/passwd` neutralisé en
+Naming verified unit by unit — accents transliterated (`Café à la crème` →
+`Cafe_a_la_creme`), a Japanese title and a pure-punctuation title falling back
+to the id, truncation at 80 characters, and `../../etc/passwd` neutralised into
 `etc_passwd`.
 
-### Test 8 — détection de langue généralisée (2026-08-07)
+### Test 8 — language detection generalised (2026-08-07)
 
-Le défaut `language="fr"` de `transcribe_file()` est retiré. Le défaut touchait
-aussi `batch.py`, qui appelait `transcribe_file()` sans argument : le Test 7
-n'avait mis en évidence qu'un symptôme sur trois.
+The `language="fr"` default of `transcribe_file()` is removed. The default also
+affected `batch.py`, which called `transcribe_file()` with no argument: Test 7
+had only brought one symptom out of three to light.
 
-**Aucune dégradation** sur du contenu français, mesurée avant de changer le
-défaut. Pour chaque fixture, `language="fr"` puis `language=None` :
+**No degradation** on French content, measured before changing the default. For
+each fixture, `language="fr"` then `language=None`:
 
-| Fixture | forcé `fr` | auto | détecté | texte |
+| Fixture | forced `fr` | auto | detected | text |
 |---|---|---|---|---|
-| `conversation_test.wav` | 0,85 s | 1,21 s | `fr` | identique |
-| `two_voices_generated.wav` | 1,40 s | 1,78 s | `fr` | identique |
-| `whatsapp_test.wav` | 0,79 s | 1,17 s | `fr` | identique |
-| `WhatsApp Audio ….opus` | 0,79 s | 1,17 s | `fr` | identique |
-| `test_vorbis.ogg` | 0,79 s | 1,14 s | `fr` | identique |
+| `conversation_test.wav` | 0.85 s | 1.21 s | `fr` | identical |
+| `two_voices_generated.wav` | 1.40 s | 1.78 s | `fr` | identical |
+| `whatsapp_test.wav` | 0.79 s | 1.17 s | `fr` | identical |
+| `WhatsApp Audio ….opus` | 0.79 s | 1.17 s | `fr` | identical |
+| `test_vorbis.ogg` | 0.79 s | 1.14 s | `fr` | identical |
 
-Le texte est **strictement identique** dans les cinq cas — la détection ne change
-pas le résultat, elle évite seulement de le corrompre quand la langue diffère.
+The text is **strictly identical** in all five cases — detection does not change
+the result, it only avoids corrupting it when the language differs.
 
-Le surcoût est **fixe, pas proportionnel** : constant autour de 0,35 s sur ces
-fixtures courtes, et 0,32 s sur un fichier français de 76 s (61,39 s → 61,71 s,
-soit 0,5 %). La détection ne tourne qu'une fois, sur la première fenêtre.
+The overhead is **fixed, not proportional**: constant around 0.35 s on these
+short fixtures, and 0.32 s on a 76 s French file (61.39 s → 61.71 s, i.e. 0.5%).
+Detection runs only once, on the first window.
 
-> ⚠️ **Forcer la langue produit une traduction, pas une erreur.** La fixture
-> française passée en `--language en` ressort en anglais parfaitement fluide :
-> « Hello, did you have time to look at the supplier's file this morning? » là
-> où l'audio dit « Bonjour, est-ce que tu as eu le temps de regarder le dossier
-> fournisseur ce matin ? ». Aucun avertissement, aucun code d'erreur, une sortie
-> plausible. C'est le même défaut qu'au Test 7, reproduit en sens inverse — et
-> la raison pour laquelle un défaut de langue codé en dur n'a pas sa place ici.
+> ⚠️ **Forcing the language produces a translation, not an error.** The French
+> fixture run with `--language en` comes back in perfectly fluent English:
+> "Hello, did you have time to look at the supplier's file this morning?" where
+> the audio says « Bonjour, est-ce que tu as eu le temps de regarder le dossier
+> fournisseur ce matin ? ». No warning, no error code, a plausible output. It is
+> the same flaw as in Test 7, reproduced in the other direction — and the reason
+> a hard-coded language default has no place here.
 
-**Vérifications fonctionnelles :**
+**Functional checks:**
 
-| Scénario | Obtenu |
+| Scenario | Obtained |
 |---|---|
-| `transcribe.py` sans `--language` sur fixture fr | ✅ français correct |
-| `transcribe.py --language en` sur la même | ✅ traduit — défaut reproduit |
-| `batch.py --force` sur `test-audio/` **mixte** | ✅ 7/7, chacun dans sa langue |
-| `batch.py --language en` | ✅ forçage propagé jusqu'à `transcribe_file()` |
-| `batch.py --force` ensuite | ✅ retour au français |
+| `transcribe.py` without `--language` on a fr fixture | ✅ correct French |
+| `transcribe.py --language en` on the same one | ✅ translated — flaw reproduced |
+| `batch.py --force` on a **mixed** `test-audio/` | ✅ 7/7, each in its own language |
+| `batch.py --language en` | ✅ forcing propagated down to `transcribe_file()` |
+| `batch.py --force` afterwards | ✅ back to French |
 
-Le lot mixte est le test qui compte : `test-audio/` contient 6 fichiers français
-et la vidéo NASA anglaise du Test 7. Un seul passage les transcrit chacun dans
-sa langue. Avec l'ancien défaut, la vidéo anglaise serait ressortie en français
-inventé, sans que le résumé du lot signale quoi que ce soit.
+The mixed batch is the test that counts: `test-audio/` contains 6 French files
+and Test 7's English NASA video. A single pass transcribes each in its own
+language. With the old default, the English video would have come back as
+invented French, without the batch report flagging anything.
 
-`youtube.py` perd du même coup son `kwargs.setdefault("language", None)`, qui
-n'était qu'un contournement local du défaut désormais supprimé.
+`youtube.py` loses its `kwargs.setdefault("language", None)` in the process,
+which was only a local workaround for the now-deleted default.
 
-### Test 9 — `summarize.py`, appel réel sur transcription longue (2026-08-07)
+### Test 9 — `summarize.py`, real call on a long transcript (2026-08-07)
 
-Premier test avec des crédits sur le compte : l'appel à l'API a bien eu lieu et
-un résumé a été produit. Le blocage du premier essai (`HTTP 400`, solde
-insuffisant) est levé — la branche d'erreur correspondante reste en place et
-avait été validée à ce moment-là.
+The first test with credits on the account: the API call did happen and a
+summary was produced. The first attempt's blockage (`HTTP 400`, insufficient
+balance) is lifted — the corresponding error branch stays in place and had been
+validated at that moment.
 
-**Sur le texte de test.** Les transcriptions de `output/` totalisent moins de
-400 mots à elles toutes : les concaténer ne donnait pas un cas représentatif.
-La transcription de test est donc **rédigée à la main** — une réunion de suivi
-de projet en français, **2 411 mots / 14 495 caractères**, avec étiquettes
-`[SPEAKER_XX]`, hésitations, répétitions et phrases interrompues.
+**About the test text.** The transcripts in `output/` add up to fewer than 400
+words all together: concatenating them did not give a representative case. The
+test transcript is therefore **written by hand** — a project follow-up meeting
+in French, **2,411 words / 14,495 characters**, with `[SPEAKER_XX]` labels,
+hesitations, repetitions and interrupted sentences.
 
-> ⚠️ Elle **simule** une sortie de reconnaissance vocale, elle n'en est pas une.
-> Les défauts sont plausibles mais choisis ; un vrai ASR se trompe autrement, en
-> particulier sur les noms propres et les chiffres. Ce test valide le
-> comportement du résumé sur un texte long et bruité, pas sa robustesse aux
-> erreurs réelles de Whisper.
+> ⚠️ It **simulates** a speech recognition output, it is not one. The flaws are
+> plausible but chosen; a real ASR gets things wrong differently, particularly
+> on proper nouns and figures. This test validates the summary's behaviour on a
+> long, noisy text, not its robustness to Whisper's real errors.
 
-En contrepartie, comme le texte est écrit, **on connaît la vérité terrain** :
-26 faits vérifiables y ont été placés délibérément — décisions, actions,
-montants, dates, un désaccord tranché et un sujet volontairement non tranché.
+In exchange, since the text is written, **the ground truth is known**: 26
+verifiable facts were deliberately planted in it — decisions, actions, amounts,
+dates, one settled disagreement and one deliberately unsettled topic.
 
-**Mesures du run :**
+**Run measurements:**
 
 | | |
 |---|---|
-| Modèle | `claude-sonnet-5` |
-| Durée | 15,1 s |
-| Tokens | 6 935 en entrée, 1 237 en sortie |
-| Coût | ≈ **0,039 $** par résumé (tarif Sonnet 3 $/15 $ par MTok) |
-| Compression | 470 mots pour 2 400, soit 20 % |
-| `stop_reason` | `end_turn` — pas de troncature |
+| Model | `claude-sonnet-5` |
+| Duration | 15.1 s |
+| Tokens | 6,935 in, 1,237 out |
+| Cost | ≈ **$0.039** per summary (Sonnet rate $3/$15 per MTok) |
+| Compression | 470 words for 2,400, i.e. 20% |
+| `stop_reason` | `end_turn` — no truncation |
 
-**Couverture : 26 / 26 faits plantés retrouvés**, vérifiés par script et non à
-l'œil. Y compris les détails secondaires (12 000 utilisateurs de l'ancien
-portail, pénalités contractuelles plafonnées à ~3 000 €) qu'un premier run avait
-laissés de côté — la couverture varie donc d'un appel à l'autre.
+**Coverage: 26 / 26 planted facts found**, checked by script rather than by eye.
+Including the secondary details (12,000 users of the old portal, contractual
+penalties capped at ~€3,000) that a first run had left aside — coverage
+therefore varies from one call to the next.
 
-**Aucune invention.** Contrôle systématique de la sortie : les seize valeurs
-numériques du résumé (240 000 €, 180 000 €, 60 000 €, 15 000–25 000 €, 3 000 €,
-12 000, 23 tickets, 80 %, 5 ans, 4 h…) figurent toutes dans la transcription, et
-les six noms propres cités (Kepler, Amélie, Thomas, Karim, Léa, OVH) aussi.
+**Nothing invented.** Systematic check of the output: the sixteen numeric values
+in the summary (€240,000, €180,000, €60,000, €15,000–25,000, €3,000, 12,000, 23
+tickets, 80%, 5 years, 4 h…) all appear in the transcript, and so do the six
+proper nouns cited (Kepler, Amélie, Thomas, Karim, Léa, OVH).
 
-**Structure et lecture.** Titre, phrase d'ouverture qui situe la réunion, points
-clés par lot, puis une section décisions/actions nominative. Trois comportements
-qui n'allaient pas de soi :
+**Structure and reading.** A title, an opening sentence placing the meeting, key
+points in batches, then a decisions/actions section naming names. Three
+behaviours that were not a given:
 
-- Le **désaccord** est restitué comme un désaccord — les deux positions sont
-  exposées dans les points clés, et l'arbitrage apparaît séparément dans les
-  décisions, sans que le résumé prenne parti.
-- Le sujet **non tranché** (hébergement) est marqué comme tel, « mis en attente,
-  à rouvrir une fois le paiement sécurisé », au lieu d'être présenté comme
-  décidé ou d'être omis.
-- Les étiquettes `[SPEAKER_XX]` sont **conservées et rapprochées** des prénoms
-  prononcés dans la réunion, sans en inventer. La transcription contenait une
-  incohérence de diarisation volontaire — `SPEAKER_00` pose une question à Karim
-  puis y répond — et le modèle l'a résolue de façon cohérente plutôt que de s'y
-  perdre.
+- The **disagreement** is rendered as a disagreement — both positions are laid
+  out in the key points, and the arbitration appears separately in the
+  decisions, without the summary taking sides.
+- The **unsettled** topic (hosting) is marked as such, "put on hold, to be
+  reopened once payment is secured", instead of being presented as decided or
+  omitted.
+- The `[SPEAKER_XX]` labels are **kept and matched** to the first names spoken
+  in the meeting, without inventing any. The transcript contained a deliberate
+  diarization inconsistency — `SPEAKER_00` asks Karim a question then answers it
+  — and the model resolved it coherently rather than getting lost in it.
 
-**Garde-fou d'entrée**, vérifié aux bornes : 150 000 caractères passent,
-150 001 lèvent « Transcription trop longue » sans appeler l'API.
+**Input guard**, checked at the bounds: 150,000 characters pass, 150,001 raise
+"Transcript too long" without calling the API.
 
-**Ce que ce test ne dit pas.** Un seul appel, un seul texte, une seule langue,
-un seul style (`concis`). La variation entre runs est réelle — elle s'est vue
-sur deux appels. Et le texte étant écrit par nos soins, la couverture mesurée
-est un plafond optimiste par rapport à une vraie transcription Whisper.
+**What this test does not say.** A single call, a single text, a single
+language, a single style (`concise`). Variation between runs is real — it showed
+across two calls. And since the text is written by us, the coverage measured is
+an optimistic ceiling compared with a real Whisper transcript.
 
-### Test 10 — `cli.py`, les quatre sous-commandes en conditions réelles (2026-08-07)
+### Test 10 — `cli.py`, the four subcommands under real conditions (2026-08-07)
 
-Chaque sous-commande a été lancée pour de vrai, pas seulement en `--help`.
+Each subcommand was run for real, not merely with `--help`.
 
-| Commande | Résultat | Durée |
+| Command | Result | Duration |
 |---|---|---|
-| `transcribe test-audio/two_voices_generated.wav` | texte français correct, `output/two_voices_generated.txt` | 4,0 s |
-| `transcribe … --diarize --num-speakers 2 --summarize` | 2 locuteurs séparés **puis** résumé enchaîné | 23,4 s |
-| `batch <dossier> --summarize` | 2 transcriptions + 2 résumés, 1 échec isolé, `exit 1` | — |
-| `youtube 'https://youtu.be/V0oo_Nybo6w' --summarize` | transcription anglaise + résumé français | 19,8 s |
-| `summarize output/…NASA….txt --style "en trois puces exactement"` | exactement 3 puces | — |
+| `transcribe test-audio/two_voices_generated.wav` | correct French text, `output/two_voices_generated.txt` | 4.0 s |
+| `transcribe … --diarize --num-speakers 2 --summarize` | 2 speakers separated **then** a chained summary | 23.4 s |
+| `batch <folder> --summarize` | 2 transcripts + 2 summaries, 1 isolated failure, `exit 1` | — |
+| `youtube 'https://youtu.be/V0oo_Nybo6w' --summarize` | English transcription + French summary | 19.8 s |
+| `summarize output/…NASA….txt --style "en trois puces exactement"` | exactly 3 bullets | — |
 
-**L'enchaînement `--diarize --summarize` est le cas qui compte** : il traverse
-les deux modules les plus éloignés du toolkit en une commande. Sortie obtenue
-sur la fixture 2 voix — `[SPEAKER_01]` puis `[SPEAKER_00]`, conforme au Test 4 —
-et le résumé écrit dans `output/two_voices_generated_diarized_summary.txt`, pas
-dans `…_summary.txt` : c'est bien la sortie **diarisée** qui a été résumée, et
-le nom du fichier le dit.
+**The `--diarize --summarize` chain is the case that counts**: it crosses the
+toolkit's two furthest-apart modules in one command. Output obtained on the
+2-voice fixture — `[SPEAKER_01]` then `[SPEAKER_00]`, consistent with Test 4 —
+and the summary written to
+`output/two_voices_generated_diarized_summary.txt`, not to `…_summary.txt`: it
+really is the **diarized** output that was summarized, and the file name says so.
 
-**Reprise du lot, vérifiée sur trois lancements successifs.** Dossier de test
-monté hors dépôt : deux fichiers audio valides, un `.wav` corrompu, un `.txt`.
+**Batch resuming, verified across three successive runs.** Test folder set up
+outside the repository: two valid audio files, one corrupted `.wav`, one `.txt`.
 
-| # | État de départ | Traités | Sautés | Résumés | Code |
+| # | Starting state | Processed | Skipped | Summaries | Code |
 |---|---|---|---|---|---|
-| 1 | rien dans `output/` | 2 | 0 | 2 produits | 1 *(fichier corrompu)* |
-| 2 | tout est là | 0 | 2 | **2 sautés — aucun appel à l'API** | 1 *(idem)* |
-| 3 | un `_summary.txt` supprimé, fichier corrompu retiré | 0 | 2 | 1 seul régénéré | 0 |
+| 1 | nothing in `output/` | 2 | 0 | 2 produced | 1 *(corrupted file)* |
+| 2 | everything is there | 0 | 2 | **2 skipped — no API call** | 1 *(same)* |
+| 3 | one `_summary.txt` deleted, corrupted file removed | 0 | 2 | 1 regenerated | 0 |
 
-Le run 2 dure **2,0 s** et ne coûte rien : c'est ce que vérifie ce test. Le
-run 3 vérifie l'autre moitié de la règle — une transcription sautée reste
-candidate au résumé, sinon reprendre un lot interrompu ne résumerait que la
-partie restante.
+Run 2 takes **2.0 s** and costs nothing: that is what this test checks. Run 3
+checks the other half of the rule — a skipped transcript stays a candidate for
+summarization, otherwise resuming an interrupted batch would only summarize the
+remaining part.
 
-**Erreurs et avertissements**, tous vérifiés en vrai :
+**Errors and warnings**, all verified for real:
 
-| Cas | Obtenu |
+| Case | Obtained |
 |---|---|
-| `transcribe` fichier absent / extension non gérée | message clair, `exit 1` |
-| `batch` dossier introuvable | « Dossier introuvable : … », `exit 1` |
-| `summarize` fichier absent | « Fichier introuvable : … », `exit 1` |
-| `--num-speakers` sans `--diarize` | « Attention : --num-speakers est ignoré sans --diarize. » |
-| `--language` avec `--diarize` | avertissement équivalent (whisperx détecte lui-même) |
+| `transcribe` missing file / unsupported extension | clear message, `exit 1` |
+| `batch` folder not found | « Dossier introuvable : … », `exit 1` |
+| `summarize` missing file | « Fichier introuvable : … », `exit 1` |
+| `--num-speakers` without `--diarize` | « Attention : --num-speakers est ignoré sans --diarize. » |
+| `--language` with `--diarize` | equivalent warning (whisperx detects on its own) |
 
-**Les modules restent utilisables seuls.** `batch.py`, `youtube.py` et
-`summarize.py` ont été relancés directement après refactor : bilan de lot
-identique, `youtube.py` affiche désormais aussi le chemin de sortie, aide de
-`summarize.py` inchangée.
+**The modules stay usable on their own.** `batch.py`, `youtube.py` and
+`summarize.py` were rerun directly after the refactor: identical batch report,
+`youtube.py` now also displays the output path, `summarize.py`'s help unchanged.
 
-> ⚠️ **Observation hors périmètre du CLI, mais à noter.** Le test
-> `--model claude-haiku-4-5` a bien routé le modèle, mais sur une transcription
-> d'**une seule phrase** (75 caractères) Haiku a répondu comme si on
-> s'adressait à lui — « je n'ai pas accès à des dossiers externes… » — au lieu
-> de résumer. Sonnet, sur un texte aussi court, dit correctement que le texte
-> est trop court pour être résumé. Le prompt système de `summarize.py` n'a été
-> calibré que sur Sonnet ; `--summary-model` reste donc à utiliser en
-> connaissance de cause.
+> ⚠️ **An observation outside the CLI's scope, but worth noting.** The
+> `--model claude-haiku-4-5` test did route the model, but on a transcript of a
+> **single sentence** (75 characters) Haiku answered as if being addressed
+> directly — "I do not have access to external files…" — instead of
+> summarizing. Sonnet, on a text that short, correctly says the text is too
+> short to summarize. `summarize.py`'s system prompt has only been calibrated on
+> Sonnet; `--summary-model` therefore remains something to use knowingly.
 
-### Test 11 — `app.py`, les trois onglets dans un vrai navigateur (2026-08-07)
+### Test 11 — `app.py`, the three tabs in a real browser (2026-08-07)
 
-L'app a été lancée (`streamlit run app.py`) et pilotée dans Chromium, pas
-seulement importée : chaque onglet a été utilisé comme un utilisateur le ferait —
-dépôt de fichier, saisie de chemin, clic sur le bouton — et le rendu vérifié sur
-capture d'écran.
+The app was launched (`streamlit run app.py`) and driven in Chromium, not merely
+imported: each tab was used the way a user would — dropping a file, typing a
+path, clicking the button — and the rendering checked on a screenshot.
 
-| Onglet | Scénario | Résultat |
+| Tab | Scenario | Result |
 |---|---|---|
-| Fichier unique | dépôt de `two_voices_generated.wav` | texte français correct, `output/two_voices_generated.txt`, bouton de téléchargement |
-| Dossier (batch) | 3 fichiers audio + 1 `.txt` + 1 `.wav` corrompu | **2 succès / 0 sauté / 1 échec**, le `.txt` ignoré au listage |
-| Dossier (batch) | même dossier relancé | **0 / 2 sautés / 1**, la reprise se voit dans le tableau |
-| YouTube | `https://youtu.be/V0oo_Nybo6w` (NASA) | transcription anglaise conforme au Test 7 |
-| YouTube | la même, case « Résumer » cochée | résumé français affiché **et** écrit dans `output/` |
+| Single file | dropping `two_voices_generated.wav` | correct French text, `output/two_voices_generated.txt`, download button |
+| Folder (batch) | 3 audio files + 1 `.txt` + 1 corrupted `.wav` | **2 successes / 0 skipped / 1 failure**, the `.txt` ignored at listing |
+| Folder (batch) | same folder rerun | **0 / 2 skipped / 1**, resuming visible in the table |
+| YouTube | `https://youtu.be/V0oo_Nybo6w` (NASA) | English transcription consistent with Test 7 |
+| YouTube | the same, "Summarize" box ticked | French summary displayed **and** written to `output/` |
 
-Durées mesurées de bout en bout du script de pilotage — lancement du navigateur
-et chargement de la page compris, donc majorées par rapport au traitement seul :
-9,5 s pour l'onglet fichier, 12,0 s pour le lot de 3 fichiers, 14,7 s pour la
-vidéo NASA, 21,5 s avec le résumé enchaîné. Aucune exception Streamlit
-(`stException`) sur aucun run.
+Durations measured end to end from the driving script — browser launch and page
+load included, therefore inflated compared with the processing alone: 9.5 s for
+the file tab, 12.0 s for the 3-file batch, 14.7 s for the NASA video, 21.5 s
+with the chained summary. No Streamlit exception (`stException`) on any run.
 
-**Le fichier corrompu est le cas qui compte** dans l'onglet lot : le traitement
-va au bout, la ligne en échec apparaît dans le tableau avec la bannière ffmpeg
-réduite à une ligne par `batch.short_reason()`, et les deux autres fichiers sont
-transcrits. C'est le comportement du CLI (Test 5), obtenu sans le réécrire.
+**The corrupted file is the case that counts** in the batch tab: processing
+reaches the end, the failing row appears in the table with the ffmpeg banner
+reduced to one line by `batch.short_reason()`, and the other two files are
+transcribed. That is the CLI's behaviour (Test 5), obtained without rewriting it.
 
-**Racine autorisée, vérifiée par contournement** et non par lecture du code :
+**Allowed root, verified by trying to get around it** rather than by reading the
+code:
 
-| Saisie | Obtenu |
+| Input | Obtained |
 |---|---|
-| `test-audio/batch_demo` | accepté, lot traité |
-| `/etc` | refusé — « Chemin hors de la racine autorisée : /private/etc » |
-| `../../../../etc` | refusé, message identique |
+| `test-audio/batch_demo` | accepted, batch processed |
+| `/etc` | refused — « Chemin hors de la racine autorisée : /private/etc » |
+| `../../../../etc` | refused, identical message |
 
-Le chemin affiché dans le refus est `/private/etc` et non `/etc` : c'est
-`realpath` qui a résolu le lien symbolique de macOS **avant** le test de
-confinement. C'est exactement ce qu'on lui demande.
+The path shown in the refusal is `/private/etc` and not `/etc`: `realpath`
+resolved macOS's symbolic link **before** the containment test. That is exactly
+what it is there for.
 
-**Cas limites d'interface vérifiés :** bouton « Transcrire » grisé tant qu'aucun
-fichier n'est déposé, champ langue grisé dès que « Identifier les locuteurs » est
-coché, champ « nombre de locuteurs » grisé dans le cas inverse.
+**Interface edge cases checked:** "Transcribe" button greyed out as long as no
+file is dropped, language field greyed out as soon as "Identify speakers" is
+ticked, "number of speakers" field greyed out in the opposite case.
 
-**Sélecteur de langue** (remplace le champ texte libre du premier jet, qui
-acceptait `langue random`) :
+**Language selector** (replacing the first draft's free-text field, which
+accepted `langue random`):
 
-| Test | Obtenu |
+| Test | Obtained |
 |---|---|
-| Liste déroulante | 30 entrées, « Détection automatique » en tête et par défaut |
-| Filtre `Esp` | une seule proposition, `Espagnol` |
-| Filtre `langue random` | **« No results »**, rien à sélectionner |
-| Même saisie + `Entrée` + perte du focus | le champ revient à « Détection automatique », la saisie est jetée |
-| Les 29 codes | tous présents dans `mlx_whisper.tokenizer.LANGUAGES`, sans doublon |
-| Onglets *Dossier* et *YouTube* | même sélecteur, une seule déclaration dans `_audio_options()` |
+| Dropdown | 30 entries, "Auto-detect" at the top and by default |
+| `Esp` filter | a single suggestion, `Espagnol` |
+| `langue random` filter | **"No results"**, nothing to select |
+| Same input + `Enter` + losing focus | the field returns to "Auto-detect", the input is discarded |
+| The 29 codes | all present in `mlx_whisper.tokenizer.LANGUAGES`, no duplicates |
+| *Folder* and *YouTube* tabs | same selector, a single declaration in `_audio_options()` |
 
-**La valeur transmise a été vérifiée par l'écart, pas par l'affichage.**
-Sélectionner « Français » sur une fixture française ne prouve rien : la
-détection automatique aurait rendu le même texte. C'est « Anglais » sur cette
-même fixture qui tranche — la sortie ressort traduite en anglais, mot pour mot
-celle du Test 8 (« Hello, did you have time to look at the supplier's file this
-morning? »). Le code `en` est donc bien arrivé jusqu'à `transcribe_file()`.
-Repassé en « Français », le texte français correct revient.
+**The value passed through was verified by the discrepancy, not by the display.**
+Selecting "French" on a French fixture proves nothing: auto-detection would have
+returned the same text. It is "English" on that same fixture that settles it —
+the output comes back translated into English, word for word the one from Test 8
+("Hello, did you have time to look at the supplier's file this morning?"). The
+`en` code therefore did reach `transcribe_file()`. Switched back to "French", the
+correct French text returns.
 
-**Ce que ce test ne dit pas.** Les fixtures du lot étaient de petits fichiers
-montés pour l'occasion, dans un sous-dossier temporaire de `test-audio/`. La
-diarisation n'a **pas** été exercée depuis l'app — le chemin est le même appel
-`diarize_file()` qu'en CLI, mais ce n'est pas une vérification. Un seul
-navigateur (Chromium), une seule session, aucun test de deux onglets de
-navigateur ouverts en même temps sur la même app.
+> The selector's labels were French at the time of this test — the dropdown now
+> reads "Auto-detect", "French", "English". The codes sent to Whisper are
+> unchanged.
 
-### Test 12 — ffmpeg introuvable hors shell interactif (2026-08-07)
+**What this test does not say.** The batch fixtures were small files set up for
+the occasion, in a temporary subfolder of `test-audio/`. Diarization was **not**
+exercised from the app — the path is the same `diarize_file()` call as in the
+CLI, but that is not a verification. A single browser (Chromium), a single
+session, no test of two browser tabs open at once on the same app.
 
-**Symptôme :** l'onglet YouTube échoue avec « ffprobe and ffmpeg not found.
-Please install or provide the path using --ffmpeg-location », alors que ffmpeg
-est installé et que le CLI marche. Constaté avec l'app lancée par une app
-Automator, qui exécute le script sans passer par un shell interactif complet.
+### Test 12 — ffmpeg not found outside an interactive shell (2026-08-07)
 
-**Cause, reproduite à l'identique.** `ffmpeg` est dans `/opt/homebrew/bin`, que
-seul un shell ayant chargé `~/.zshrc` met dans le `PATH` :
+**Symptom:** the YouTube tab fails with "ffprobe and ffmpeg not found. Please
+install or provide the path using --ffmpeg-location", even though ffmpeg is
+installed and the CLI works. Observed with the app launched by an Automator app,
+which runs the script without going through a full interactive shell.
+
+**Cause, reproduced identically.** `ffmpeg` is in `/opt/homebrew/bin`, which
+only a shell that has loaded `~/.zshrc` puts on `PATH`:
 
 ```bash
-env PATH=/usr/bin:/bin sh -c 'command -v ffmpeg'   # → rien
+env PATH=/usr/bin:/bin sh -c 'command -v ffmpeg'   # → nothing
 ```
 
-**Le bug avait deux moitiés, pas une.** Le message d'erreur ne montrait que la
-première, parce que le téléchargement échouait avant d'arriver à la seconde :
+**The bug had two halves, not one.** The error message only showed the first,
+because the download failed before reaching the second:
 
-| Étape de `transcribe_youtube()` | Sous PATH amputé, avant correctif |
+| `transcribe_youtube()` step | Under a stripped PATH, before the fix |
 |---|---|
-| téléchargement yt-dlp | ❌ « ffprobe and ffmpeg not found » |
-| transcription `mlx_whisper` | ❌ « [Errno 2] No such file or directory: 'ffmpeg' » |
+| yt-dlp download | ❌ "ffprobe and ffmpeg not found" |
+| `mlx_whisper` transcription | ❌ "[Errno 2] No such file or directory: 'ffmpeg'" |
 
-Ne corriger que yt-dlp aurait donc déplacé la panne d'un cran au lieu de la
-lever — vérifié : avec `ffmpeg_location` seul, le téléchargement passe puis la
-transcription tombe sur `Errno 2`. D'où les deux correctifs.
+Fixing only yt-dlp would therefore have moved the failure one notch instead of
+lifting it — verified: with `ffmpeg_location` alone, the download goes through
+and then the transcription hits `Errno 2`. Hence the two fixes.
 
-**Après correctif :**
+**After the fix:**
 
-| Scénario | Résultat |
+| Scenario | Result |
 |---|---|
-| `streamlit run app.py` depuis un terminal | ✅ onglet YouTube complet, transcription conforme |
-| `env PATH=/usr/bin:/bin … streamlit run app.py` | ✅ **identique**, téléchargement et transcription |
-| `cli.py youtube` depuis un terminal | ✅ aucune régression, `exit 0` |
-| `cli.py transcribe` depuis un terminal | ✅ aucune régression |
+| `streamlit run app.py` from a terminal | ✅ full YouTube tab, transcription as expected |
+| `env PATH=/usr/bin:/bin … streamlit run app.py` | ✅ **identical**, download and transcription |
+| `cli.py youtube` from a terminal | ✅ no regression, `exit 0` |
+| `cli.py transcribe` from a terminal | ✅ no regression |
 
-Mécanique vérifiée sous `PATH=/usr/bin:/bin` : `shutil.which("ffmpeg")` retourne
-`None`, le repli Homebrew retrouve `/opt/homebrew/bin/ffmpeg`,
-`ensure_on_path()` fait passer le `PATH` à `/opt/homebrew/bin:/usr/bin:/bin`, et
-un second appel ne le duplique pas.
+Mechanics verified under `PATH=/usr/bin:/bin`: `shutil.which("ffmpeg")` returns
+`None`, the Homebrew fallback finds `/opt/homebrew/bin/ffmpeg`,
+`ensure_on_path()` turns `PATH` into `/opt/homebrew/bin:/usr/bin:/bin`, and a
+second call does not duplicate it.
 
-> ⚠️ **Ce que le message d'erreur ne disait pas.** « ffmpeg not found » sur une
-> machine où `which ffmpeg` répond est presque toujours un problème de `PATH`
-> hérité, pas d'installation. Le réflexe — réinstaller ffmpeg — ne pouvait rien
-> donner ici.
+> ⚠️ **What the error message did not say.** "ffmpeg not found" on a machine
+> where `which ffmpeg` answers is almost always a problem of inherited `PATH`,
+> not of installation. The reflex — reinstalling ffmpeg — could not have helped
+> here.
 
-**Ce que ce test ne dit pas.** Le PATH restreint est *simulé* avec `env` : la
-vraie app Automator n'a pas été relancée pour confirmer, et son PATH réel n'a pas
-été relevé. `/usr/local/bin` (Homebrew sur Intel) est dans les emplacements de
-repli mais n'a jamais été exercé — cette machine est en Apple Silicon. Le cas
-« ffmpeg réellement absent de la machine » n'a pas été provoqué : la bannière
-d'erreur de l'app n'a donc jamais été vue.
+**What this test does not say.** The restricted PATH is *simulated* with `env`:
+the real Automator app was not relaunched to confirm, and its actual PATH was
+not recorded. `/usr/local/bin` (Homebrew on Intel) is among the fallback
+locations but has never been exercised — this machine is Apple Silicon. The case
+"ffmpeg genuinely absent from the machine" was not provoked: the app's error
+banner has therefore never been seen.
 
-### Environnement de test (vérifié le 2026-08-06)
+### Test environment (checked on 2026-08-06)
 
-Mac M5 (`Darwin arm64`) — tout est en place :
+M5 Mac (`Darwin arm64`) — everything is in place:
 
 | Élément | Statut |
 |---|---|
@@ -1540,116 +1535,116 @@ Mac M5 (`Darwin arm64`) — tout est en place :
 | `whisperx` | ✅ 3.8.6 |
 | `yt-dlp` | ✅ 2026.7.4 |
 | `python-dotenv` | ✅ 1.2.2 |
-| `ffmpeg` | ✅ 8.1.2 dans le `PATH` |
+| `ffmpeg` | ✅ 8.1.2 on `PATH` |
 | `anthropic` | ✅ 0.120.2 |
-| `ANTHROPIC_API_KEY` / `.env` | ✅ présente, valide, compte crédité |
-| `HF_TOKEN` / `.env` | ✅ présent et valide (token classique, lecture) |
-| Accès `pyannote/speaker-diarization-community-1` | ✅ conditions acceptées |
+| `ANTHROPIC_API_KEY` / `.env` | ✅ present, valid, account credited |
+| `HF_TOKEN` / `.env` | ✅ present and valid (classic read token) |
+| `pyannote/speaker-diarization-community-1` access | ✅ terms accepted |
 
-> ⚠️ La section « État d'installation par machine » ci-dessus décrit une machine
-> Windows 11 / Python 3.14 : elle est **obsolète** et ne correspond pas à la
-> machine de dev actuelle.
+> ⚠️ The "Installation state per machine" section above describes a Windows 11 /
+> Python 3.14 machine: it is **out of date** and does not correspond to the
+> current dev machine.
 
-> ℹ️ `torchcodec` est cassé dans ce venv : il attend les bibliothèques ffmpeg 4
-> à 7 (`libavutil.56` à `.59`) alors que la machine a ffmpeg 8.1.2
-> (`libavutil.60`), d'où un avertissement pyannote bruyant au démarrage.
-> **Confirmé sans impact** : la VAD pyannote, la détection de langue, l'ASR et
-> l'alignement tournent tous normalement. whisperx pré-charge l'audio en mémoire
-> et le passe sous forme de waveform, ce qui est exactement le contournement
-> documenté par pyannote. Ce n'est pas la cause du blocage de la diarisation.
+> ℹ️ `torchcodec` is broken in this venv: it expects the ffmpeg 4 to 7 libraries
+> (`libavutil.56` to `.59`) while the machine has ffmpeg 8.1.2
+> (`libavutil.60`), hence a noisy pyannote warning at startup. **Confirmed to
+> have no impact**: pyannote's VAD, language detection, ASR and alignment all
+> run normally. whisperx preloads the audio into memory and passes it as a
+> waveform, which is exactly the workaround pyannote documents. It is not the
+> cause of the diarization blockage.
 
-### Reste à valider
+### Still to validate
 
-- **Diarisation en conditions réalistes** : la séparation est validée, mais sur
-  un cas facile — deux voix de synthèse, très éloignées en hauteur, sans
-  chevauchement, avec une seule bascule. Restent non testés : le chevauchement
-  de parole, les tours de parole rapprochés, deux voix proches, plus de deux
-  locuteurs, et de vraies voix humaines dans du bruit.
-- **Détection automatique du nombre de locuteurs** : toujours testée avec
-  `--num-speakers` explicite, jamais en laissant pyannote décider seul sur un
-  fichier multi-voix.
-- Autres extensions : `.m4a`, `.wav`, `.opus` et `.ogg` ont été exécutés ;
-  `.mp3` et `.mp4` sont acceptés par le code mais jamais passés dans
-  `mlx_whisper`.
-- `diarize.py` ne valide pas l'extension du fichier, contrairement à
-  `transcribe.py` : un fichier non audio y produira une erreur ffmpeg brute.
-- Fichier audio corrompu ou tronqué : remonte aujourd'hui en `RuntimeError`
-  brute de `mlx_whisper` avec une stacktrace, au lieu d'un message propre.
-- Fichier long (> 30 min) : comportement mémoire et découpage non observés.
-- `batch.py` sur un vrai lot : testé sur 3 fichiers courts. Le comportement sur
-  plusieurs dizaines de fichiers longs — durée totale, mémoire, rechargement du
-  modèle à chaque fichier — n'a pas été observé.
-- La reprise de `batch.py` se fie à la **présence** du fichier de sortie, jamais
-  à son contenu. Une sortie tronquée par une coupure en pleine écriture serait
-  considérée comme complète et sautée au lancement suivant. Ce cas n'a pas été
-  provoqué en test ; le contournement est `--force`, ou supprimer le `.txt`.
-- `youtube.py` : vidéo réellement privée et vidéo bloquée par région ne sont pas
-  testées — impossible d'en provoquer une. Leur détection repose sur des motifs
-  de message yt-dlp (`private video`, `not available in your country`) qui n'ont
-  jamais été déclenchés pour de vrai.
-- `youtube.py` : deux vidéos de même titre produisent le même nom de fichier et
-  s'écrasent. Avec la reprise de `batch.py`, la seconde serait même sautée.
-- `youtube.py` : testé sur des vidéos d'une minute. Rien n'est connu du
-  comportement sur une vidéo d'une heure — durée, mémoire, taille du `.opus`.
-- Détection de langue : vérifiée sur du français (5 fixtures) et de l'anglais
-  (vidéo NASA). Aucune autre langue testée, et aucun cas de bascule de langue
-  *à l'intérieur* d'un même fichier — Whisper ne détecte que sur la première
-  fenêtre, un enregistrement bilingue serait donc transcrit dans une seule
-  langue.
-- `summarize.py` n'a jamais été lancé sur une **vraie** transcription Whisper
-  longue : le seul texte de test à l'échelle est écrit à la main (Test 9). Les
-  erreurs typiques d'un ASR — noms propres déformés, chiffres mal reconnus — ne
-  sont donc pas représentées, alors que ce sont elles qui piègent un résumé.
-- `summarize.py` : un seul appel mesuré, un seul style (`concis`), une seule
-  langue. La couverture varie d'un run à l'autre — observé sur deux appels.
-- `summarize.py` ne découpe pas les entrées : au-delà de 150 000 caractères il
-  refuse avec un message clair plutôt que de laisser l'API échouer, mais il n'y
-  a pas de chunking. Le plafond `MAX_TOKENS = 4096` en sortie n'a jamais été
-  approché (1 237 tokens sur le run le plus gros) et la troncature n'a été
-  vérifiée qu'en simulant `stop_reason: max_tokens`.
-- `cli.py` : `--summary-model` et `--summary-style` n'ont été exercés que via la
-  sous-commande `summarize`, jamais enchaînés derrière `--summarize` sur une
-  entrée audio. Le câblage est le même parseur parent pour les trois entrées,
-  mais ce n'est pas une vérification.
-- `cli.py` : un lot où **le résumé** échoue (clé absente, quota dépassé) n'a pas
-  été provoqué. Le code compte les échecs et sort en 1 sans interrompre la
-  série, comme pour les transcriptions ; ce chemin n'a pas été exécuté.
-- `cli.py` : la reprise des résumés se fie, comme celle des transcriptions, à la
-  **présence** du `_summary.txt`, jamais à son contenu.
-- `summarize.py` : le prompt système n'est calibré que pour `claude-sonnet-5`.
-  Sur `claude-haiku-4-5` et une entrée d'une phrase, le modèle répond à côté
-  (Test 10). Aucun autre modèle n'a été essayé.
-- `app.py` : la diarisation n'a jamais été lancée depuis l'interface web, ni le
-  résumé d'un lot entier (case « Résumer » sur l'onglet dossier). Les deux
-  passent par les mêmes appels qu'en CLI, mais le chemin n'a pas été exécuté.
-- `app.py` : un traitement long bloque la page jusqu'à la fin — pas de barre de
-  progression fichier par fichier, seulement un spinner. Sur un lot de plusieurs
-  dizaines de fichiers, rien ne distingue « en cours » de « figé ». La sortie
-  détaillée de `process_folder()` part sur stdout, donc dans le terminal, pas
-  dans le navigateur.
-- `app.py` : `st.session_state` est propre à une session de navigateur. Deux
-  onglets ouverts sur la même app ont chacun leur résultat, mais écrivent dans le
-  même `output/` — deux traitements simultanés du même fichier n'ont pas été
-  provoqués.
-- `app.py` : le sélecteur de langue ne propose que 30 entrées sur les 100 langues
-  que Whisper connaît. Les autres restent atteignables en CLI (`--language`),
-  ou en ajoutant une ligne à `LANGUAGES`. Seuls `fr` et `en` ont été exercés
-  depuis l'app ; les 27 autres codes sont vérifiés valides mais jamais lancés.
-- `app.py` : testé sur Chromium uniquement, à une seule taille de fenêtre.
-- `ffmpeg_path.py` : le PATH restreint est simulé avec `env`, la vraie app
-  Automator n'a pas servi de contre-épreuve. Le repli `/usr/local/bin` (Homebrew
-  Intel) n'a jamais été exercé, et le cas « ffmpeg absent de la machine » — donc
-  la bannière d'erreur au chargement de l'app — n'a pas été provoqué.
-- `cli.py` n'appelle pas `ensure_on_path()` : lancé autrement que depuis un
-  shell, il échouerait comme l'app le faisait. Volontaire tant que le CLI part
-  d'un terminal ; le correctif tient en une ligne si ça change.
-- Le toolkit n'est pas installable (`pip install -e .`) : voir
-  [Pourquoi `python src/cli.py`](#pourquoi-python-srcclipy-et-pas-une-commande-whisper-toolkit-installée).
-- Autres modèles que `whisper-large-v3-mlx`.
-- Tests automatisés dans `tests/` : aucun pour l'instant, tout a été vérifié
-  à la main.
+- **Diarization under realistic conditions**: separation is validated, but on an
+  easy case — two synthetic voices, far apart in pitch, without overlap, with a
+  single switch. Still untested: overlapping speech, closely spaced turns, two
+  similar voices, more than two speakers, and real human voices in noise.
+- **Automatic detection of the number of speakers**: always tested with an
+  explicit `--num-speakers`, never by letting pyannote decide on its own on a
+  multi-voice file.
+- Other extensions: `.m4a`, `.wav`, `.opus` and `.ogg` have been run; `.mp3` and
+  `.mp4` are accepted by the code but never passed through `mlx_whisper`.
+- `diarize.py` does not validate the file extension, unlike `transcribe.py`: a
+  non-audio file will produce a raw ffmpeg error there.
+- Corrupted or truncated audio file: currently surfaces as a raw `RuntimeError`
+  from `mlx_whisper` with a stack trace, instead of a clean message.
+- Long file (> 30 min): memory behaviour and chunking not observed.
+- `batch.py` on a real batch: tested on 3 short files. Behaviour on several
+  dozen long files — total duration, memory, reloading the model for each file —
+  has not been observed.
+- `batch.py`'s resuming trusts the output file's **presence**, never its
+  content. An output truncated by an interruption mid-write would be considered
+  complete and skipped on the next run. That case was not provoked in testing;
+  the workaround is `--force`, or deleting the `.txt`.
+- `youtube.py`: a genuinely private video and a region-blocked video are not
+  tested — impossible to provoke one. Their detection rests on yt-dlp message
+  patterns (`private video`, `not available in your country`) that have never
+  been triggered for real.
+- `youtube.py`: two videos with the same title produce the same file name and
+  overwrite each other. With `batch.py`'s resuming, the second would even be
+  skipped.
+- `youtube.py`: tested on one-minute videos. Nothing is known about the
+  behaviour on an hour-long video — duration, memory, `.opus` size.
+- Language detection: verified on French (5 fixtures) and English (NASA video).
+  No other language tested, and no case of the language switching *within* a
+  single file — Whisper only detects on the first window, so a bilingual
+  recording would be transcribed in a single language.
+- `summarize.py` has never been run on a **real** long Whisper transcript: the
+  only test text at that scale is written by hand (Test 9). The typical errors
+  of an ASR — mangled proper nouns, misheard figures — are therefore not
+  represented, and those are exactly what trip a summary up.
+- `summarize.py`: a single measured call, a single style (`concise`), a single
+  language. Coverage varies from one run to the next — observed across two calls.
+- `summarize.py` does not chunk its input: beyond 150,000 characters it refuses
+  with a clear message rather than letting the API fail, but there is no
+  chunking. The `MAX_TOKENS = 4096` output ceiling has never been approached
+  (1,237 tokens on the largest run) and truncation has only been checked by
+  simulating `stop_reason: max_tokens`.
+- `summarize.py`: the summary's language is not instructed, it is inherited from
+  the transcript — measured on French and English only (4 English runs out of 4,
+  3 French out of 3). A transcript of a few dozen characters carries too little
+  signal and can come back in English; no other language pair was measured.
+- `cli.py`: `--summary-model` and `--summary-style` have only been exercised
+  through the `summarize` subcommand, never chained behind `--summarize` on an
+  audio input. The wiring is the same parent parser for all three inputs, but
+  that is not a verification.
+- `cli.py`: a batch where **the summary** fails (missing key, quota exceeded)
+  was not provoked. The code counts the failures and exits with 1 without
+  interrupting the series, as for transcriptions; that path has not been run.
+- `cli.py`: summary resuming trusts, like transcription resuming, the
+  **presence** of the `_summary.txt`, never its content.
+- `summarize.py`: the system prompt is only calibrated for `claude-sonnet-5`. On
+  `claude-haiku-4-5` with a one-sentence input, the model answers beside the
+  point (Test 10). No other model has been tried.
+- `app.py`: diarization has never been run from the web interface, nor has the
+  summarization of a whole batch ("Summarize" box on the folder tab). Both go
+  through the same calls as the CLI, but the path has not been executed.
+- `app.py`: a long job blocks the page until it finishes — no per-file progress
+  bar, only a spinner. On a batch of several dozen files, nothing distinguishes
+  "running" from "frozen". `process_folder()`'s detailed output goes to stdout,
+  hence to the terminal, not to the browser.
+- `app.py`: `st.session_state` is specific to a browser session. Two tabs open
+  on the same app each have their own result, but write into the same `output/`
+  — two simultaneous jobs on the same file were not provoked.
+- `app.py`: the language selector only offers 30 entries out of the 100
+  languages Whisper knows. The others stay reachable from the CLI
+  (`--language`), or by adding a line to `LANGUAGES`. Only `fr` and `en` have
+  been exercised from the app; the other 27 codes are verified valid but never
+  run.
+- `app.py`: tested on Chromium only, at a single window size.
+- `ffmpeg_path.py`: the restricted PATH is simulated with `env`, the real
+  Automator app was not used as a counter-check. The `/usr/local/bin` fallback
+  (Homebrew on Intel) has never been exercised, and the "ffmpeg absent from the
+  machine" case — hence the error banner when the app loads — was not provoked.
+- `cli.py` does not call `ensure_on_path()`: launched anywhere other than from a
+  shell, it would fail the way the app did. Deliberate as long as the CLI starts
+  from a terminal; the fix is one line if that changes.
+- The toolkit is not installable (`pip install -e .`): see
+  [Why `python src/cli.py`](#why-python-srcclipy-and-not-an-installed-whisper-toolkit-command).
+- Models other than `whisper-large-v3-mlx`.
+- Automated tests in `tests/`: none for now, everything has been checked by hand.
 
-## Développement
+## Development
 
-Les conventions de contribution et le contexte du projet sont dans
+The contribution conventions and the project context are in
 [CLAUDE.md](CLAUDE.md).
