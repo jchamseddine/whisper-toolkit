@@ -34,7 +34,8 @@ whisper-toolkit/
 ├── src/
 │   ├── transcribe.py  # transcription simple (mlx-whisper)
 │   ├── diarize.py     # transcription + locuteurs (whisperx)
-│   └── batch.py       # traitement d'un dossier entier
+│   ├── batch.py       # traitement d'un dossier entier
+│   └── youtube.py     # transcription depuis une URL (yt-dlp)
 └── tests/             # tests (vide pour l'instant)
 ```
 
@@ -118,6 +119,44 @@ d'un côté ne peut pas désynchroniser la détection de reprise de l'autre.
 **Pas de surveillance continue de dossier.** Un simple traitement de lot couvre
 l'usage réel (« transcrire tous les cours de la semaine d'un coup »). Le mode
 watchdog ne sera ajouté que si le besoin se confirme.
+
+### `youtube.py` — téléchargement, puis délégation
+
+Comme `batch.py`, ce module ne transcrit rien lui-même : il récupère l'audio
+avec yt-dlp et passe la main.
+
+```
+URL ──> extract_info()      (titre + identifiant, sans télécharger)
+    ──> _safe_stem()        (nom de fichier prévisible)
+    ──> download            (test-audio/{nom}.opus, gitignoré)
+    ──> transcribe_file()   ou  diarize_file()   (--diarize)
+    ──> output/{nom}.txt    ou  output/{nom}_diarized.txt
+```
+
+**Format téléchargé : `.opus`, choisi après mesure.** YouTube sert nativement un
+flux Opus, que yt-dlp extrait en `-acodec copy` — donc **sans ré-encodage**.
+Pour une vidéo d'une minute : **960 Ko en opus contre 11,4 Mo en wav**, où le
+wav impose en plus une passe ffmpeg. `.opus` est déjà dans
+`SUPPORTED_EXTENSIONS`, donc `transcribe_file()` l'accepte tel quel. La
+constante `AUDIO_FORMAT` en tête du module suffit à basculer sur `m4a` ou `wav`.
+
+Le détail qui a tranché : à contenu audio identique, **le conteneur n'a aucun
+effet** sur la transcription — un même flux en `.m4a` et en `.wav` donne le même
+texte, au mot près, dans le même temps. Ce qui compte est le **flux source
+choisi chez YouTube**, pas l'extension. Mesures dans le Test 7 ci-dessous.
+
+**Nommage.** `_safe_stem()` translittère le titre en ASCII et remplace tout le
+reste par `_`. Un titre entièrement non latin, vide, ou fait de ponctuation ne
+laisse rien d'exploitable : on retombe alors sur l'identifiant YouTube. Effet de
+bord utile : un titre comme `../../etc/passwd` devient `etc_passwd`, donc aucune
+écriture hors de `test-audio/`. En contrepartie, **deux vidéos de même titre
+écrivent le même fichier** — c'est le prix d'un nom prévisible.
+
+**Langue : détection automatique, contrairement au reste du toolkit.**
+`transcribe.py` force `fr` par défaut, ce qui convient à des enregistrements
+personnels mais pas à YouTube. `youtube.py` passe donc `language=None` et laisse
+Whisper détecter ; `--language` force au besoin. Sans ça, une vidéo anglaise
+ressort en français inventé — voir le Test 7, où le cas s'est produit.
 
 Les imports entre modules de `src/` sont **plats** (`from transcribe import …`),
 parce que ces fichiers s'exécutent comme des scripts : `python src/batch.py`
@@ -516,6 +555,98 @@ Cas complémentaires vérifiés :
 > demandée à `transcript_path()` / `diarized_transcript_path()` selon le mode,
 > plutôt que reconstruite dans `batch.py`.
 
+### Test 7 — `youtube.py` (2026-08-07)
+
+Vidéo de test : `V0oo_Nybo6w`, « NASA Artemis II: Counting Down to Our Next Moon
+Mission », 60 s, chaîne officielle NASA. Choisie parce qu'une production de la
+NASA est dans le domaine public (œuvre du gouvernement américain) et que sa
+durée garde le test rapide. **Ni l'audio ni la transcription ne sont versionnés**
+— `test-audio/*` et `output/` sont ignorés, vérifié avec `git check-ignore`.
+
+**Choix du format : mesuré, pas supposé.** Le point de départ était « `.wav` ou
+`.m4a` ». La mesure a montré que la question était mal posée.
+
+| Source | Conteneur | Temps | Mots | Réf. sous-titres |
+|---|---|---|---|---|
+| flux AAC | `.m4a` | 20,1 s | 338 | 121 |
+| flux AAC | `.wav` | 20,3 s | 338 | 121 |
+| flux Opus | `.m4a` | 5,0 s | 124 | 121 |
+| flux Opus | `.wav` | 5,0 s | 123 | 121 |
+
+À contenu identique, les deux conteneurs donnent **exactement** le même résultat
+(3 exécutions chacun, chiffres stables au dixième). Le conteneur n'entre donc pas
+en compte ; seul le **flux source** compte. Sur cette vidéo, le flux AAC part en
+boucle d'hallucination : 338 mots au lieu de 121, dont `the` **77 fois**, soit
+23 % du texte.
+
+Vérifié sur 3 autres vidéos NASA courtes, transcription comparée aux sous-titres
+automatiques YouTube pris comme référence :
+
+| Vidéo | AAC | Opus | Réf. |
+|---|---|---|---|
+| `XYMuC2MDbwo` | 7,8 s / 176 mots | 6,1 s / 179 mots | 168 |
+| `MLgYJh6OFbY` | 36,5 s / 143 mots | 15,1 s / 130 mots | 130 |
+| `oqRwrlJbjOg` | 33,3 s / 141 mots | 5,6 s / 132 mots | 131 |
+
+Le flux Opus est plus rapide dans les 4 cas (jusqu'à 6×) et plus proche de la
+référence. D'où le choix de `.opus` : meilleure entrée pour Whisper, aucun
+ré-encodage (`-acodec copy`, vérifié dans la ligne de commande ffmpeg émise par
+yt-dlp), et 12× plus léger que le wav.
+
+> ⚠️ **Le premier run réel a produit une transcription entièrement fausse.**
+> L'audio est anglais, mais `transcribe.py` force `language="fr"` : Whisper a
+> rendu un texte français inventé, fluide et plausible, qui n'avait qu'un
+> rapport lointain avec l'original. Rien dans la sortie ne signalait le
+> problème. C'est ce qui a motivé le passage en détection automatique dans
+> `youtube.py`. Après correction, la transcription correspond aux sous-titres
+> YouTube (123 mots contre 121 de référence).
+
+**Résultats fonctionnels :**
+
+| Scénario | Attendu | Obtenu |
+|---|---|---|
+| CLI, détection auto | transcription anglaise correcte | ✅ 8,6 s bout en bout |
+| CLI, `--language en` | identique | ✅ |
+| CLI, `--diarize` | segments étiquetés | ✅ 13 segments, 2 locuteurs, 73,5 s |
+| Audio téléchargé | dans `test-audio/`, ignoré | ✅ `.gitignore:44` |
+| Transcription | dans `output/`, ignorée | ✅ `.gitignore:54` |
+
+**Gestion d'erreurs**, messages vérifiés sur de vraies URL :
+
+| Cas | Obtenu |
+|---|---|
+| Identifiant inexistant | « Vidéo indisponible … supprimée, privée, ou identifiant erroné » |
+| Chaîne qui n'est pas une URL | idem (yt-dlp la traite comme un identifiant) |
+| URL non-YouTube en 404 | « Échec du téléchargement » + détail yt-dlp |
+| URL de playlist pure | refus explicite, « 8 vidéos … passe l'URL d'une vidéo » |
+| URL `watch?v=…&list=…` | la seule vidéo est traitée, titre conservé |
+
+> ⚠️ **Une URL de playlist aurait téléchargé 8 vidéos sous un seul nom.**
+> `noplaylist` ne règle que les URL `watch?v=…&list=…` ; sur une URL de
+> playlist pure, yt-dlp renvoie les 8 entrées. Comme le modèle de nom est fixé
+> avant le téléchargement, les 8 fichiers se seraient écrasés l'un l'autre et
+> seule la dernière vidéo aurait été transcrite — sous le titre de la playlist,
+> sans le moindre avertissement. D'où le refus explicite dans `download_audio()`.
+>
+> Le garde-fou a lui-même coûté une correction : `extract_flat=True`, ajouté
+> pour ne pas résoudre les 8 entrées, aplatissait *aussi* la vidéo seule, qui
+> perdait son titre et retombait sur l'identifiant. C'est `in_playlist` qu'il
+> faut, pas `True`.
+
+Le message brut de yt-dlp était affiché **en plus** du message traduit :
+`quiet=True` ne couvre pas les erreurs, qui partent sur stderr quoi qu'il
+arrive. Un `logger` muet passé à `YoutubeDL` règle le problème.
+
+Cas **non testés** faute de pouvoir les provoquer : vidéo réellement privée,
+vidéo bloquée par région. Leur détection repose sur des motifs de message
+(`private video`, `not available in your country`) repris de la documentation
+yt-dlp, jamais déclenchés en conditions réelles.
+
+Nommage vérifié unitairement — accents translittérés (`Café à la crème` →
+`Cafe_a_la_creme`), titre japonais et titre de ponctuation pure repliés sur
+l'identifiant, troncature à 80 caractères, et `../../etc/passwd` neutralisé en
+`etc_passwd`.
+
 ### Environnement de test (vérifié le 2026-08-06)
 
 Mac M5 (`Darwin arm64`) — tout est en place :
@@ -569,6 +700,14 @@ Mac M5 (`Darwin arm64`) — tout est en place :
   à son contenu. Une sortie tronquée par une coupure en pleine écriture serait
   considérée comme complète et sautée au lancement suivant. Ce cas n'a pas été
   provoqué en test ; le contournement est `--force`, ou supprimer le `.txt`.
+- `youtube.py` : vidéo réellement privée et vidéo bloquée par région ne sont pas
+  testées — impossible d'en provoquer une. Leur détection repose sur des motifs
+  de message yt-dlp (`private video`, `not available in your country`) qui n'ont
+  jamais été déclenchés pour de vrai.
+- `youtube.py` : deux vidéos de même titre produisent le même nom de fichier et
+  s'écrasent. Avec la reprise de `batch.py`, la seconde serait même sautée.
+- `youtube.py` : testé sur des vidéos d'une minute. Rien n'est connu du
+  comportement sur une vidéo d'une heure — durée, mémoire, taille du `.opus`.
 - Autres langues et autres modèles que les valeurs par défaut.
 - Tests automatisés dans `tests/` : aucun pour l'instant, tout a été vérifié
   à la main.
