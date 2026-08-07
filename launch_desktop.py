@@ -21,10 +21,10 @@ Quatre choses sont moins évidentes qu'elles n'en ont l'air :
 - **Streamlit est démarré dans sa propre session** (`start_new_session`) pour
   pouvoir tuer le groupe de processus entier à la fermeture. Terminer le seul
   processus parent laisserait ses enfants tenir le port 8501.
-- **L'identité de l'app est corrigée à la main.** pywebview ouvre sa fenêtre
-  depuis ce processus Python, qui n'est pas un bundle `.app` : macOS lui prête
-  donc l'identité de l'interpréteur — la fusée et le nom « Python ». L'icône et
-  le menu se rattrapent, l'infobulle du Dock non ; voir `set_dock_identity()`.
+- **L'identité de l'app ne se joue pas ici.** Elle vient du bundle `.app` auquel
+  appartient l'exécutable, que `scripts/make_launcher_bundle.sh` fabrique et que
+  l'applet Automator invoque. `set_dock_identity()` ci-dessous n'est que le
+  filet pour les lancements directs, depuis un terminal.
 
 Lancement : `python launch_desktop.py` depuis la racine du dépôt.
 """
@@ -67,32 +67,32 @@ DOCK_ICON = os.path.join(PROJECT_ROOT, "assets", "app-icon-1024.png")
 
 
 def set_dock_identity() -> None:
-    """Donne au processus l'icône et le nom de l'app, plutôt que ceux de Python.
+    """Rattrape l'icône et le nom du Dock quand l'app est lancée sans son bundle.
 
-    Sans bundle `.app`, macOS identifie ce processus par le bundle de
-    l'interpréteur — `org.python.python`, dont l'`Info.plist` fournit la fusée et
-    le nom « Python ». PyObjC, déjà installé puisque pywebview en dépend sur
-    macOS, permet d'en corriger une partie :
+    macOS identifie un processus par le bundle `.app` auquel appartient son
+    exécutable. Lancée par l'applet Automator, l'app en a un, taillé pour elle
+    par `scripts/make_launcher_bundle.sh` : rien à corriger, cette fonction ne
+    fait alors que répéter ce que l'`Info.plist` dit déjà.
 
-    - `setApplicationIconImage_()` remplace l'icône du Dock. Fiable, vérifié à
-      l'écran : la fusée disparaît au profit du micro ;
+    Lancée à la main — `python launch_desktop.py` depuis un terminal — elle
+    hérite en revanche du bundle de l'interpréteur, `org.python.python`, avec sa
+    fusée et son nom « Python ». C'est ce cas-là que les deux lignes ci-dessous
+    couvrent, via PyObjC, déjà installé puisque pywebview en dépend sur macOS :
+
+    - `setApplicationIconImage_()` remplace l'icône du Dock ;
     - `CFBundleName`, écrit dans le dictionnaire du bundle principal, renomme le
-      **menu** de l'app — « Python » devient « Whisper Toolkit » à côté du logo
-      Apple. C'est une mutation du dictionnaire vivant du processus courant, pas
-      une écriture sur disque : rien n'est modifié hors du processus.
+      menu de l'app à côté du logo Apple. C'est une mutation du dictionnaire
+      vivant du processus courant, pas une écriture sur disque : rien n'est
+      modifié hors du processus.
 
     L'ordre compte pour le nom : il doit être posé **avant** que `NSApplication`
     existe, car c'est à sa création que le menu est construit. D'où l'appel avant
     l'import de `webview`, qui instancie l'application Cocoa.
 
-    **Ce qui résiste : l'infobulle du Dock**, qui affiche encore « Python » au
-    survol. Elle ne vient pas du processus mais de LaunchServices, qui lit le
-    bundle sur le disque — `CFBundleName` posé à l'exécution arrive trop tard, et
-    `NSProcessInfo.setProcessName_()` n'y change rien non plus (essayé, sans
-    effet). Même origine pour la deuxième tuile du Dock — l'applet Automator et
-    ce processus en occupent chacun une. Corriger l'un ou l'autre demanderait un
-    vrai bundle `.app` avec son propre `Info.plist`, c'est-à-dire py2app ; le
-    README pèse le pour et le contre.
+    Ce que ces deux lignes n'atteignent pas, et qui explique le bundle :
+    l'infobulle du Dock et le nom du processus viennent du bundle sur le disque,
+    hors de portée de tout réglage à l'exécution — `NSProcessInfo.setProcessName_()`
+    y compris, essayé sans effet.
 
     Purement cosmétique : tout échec est silencieux, une fenêtre à la mauvaise
     icône valant mieux que pas de fenêtre.
@@ -134,6 +134,11 @@ def start_streamlit() -> subprocess.Popen:
         # Empêche Streamlit d'ouvrir un onglet de navigateur de son côté.
         "--server.headless",
         "true",
+        # Retire le menu « Deploy / Rerun / Clear cache » du coin supérieur
+        # droit : il s'adresse à qui développe l'app, pas à qui l'utilise, et
+        # ses actions n'ont aucun sens pour une app locale dans une fenêtre.
+        "--client.toolbarMode",
+        "minimal",
     ]
     # Les flux restent hérités : lancée par Automator, l'app n'a pas de terminal,
     # et c'est la sortie d'erreur du script qui remonte dans la boîte de dialogue.

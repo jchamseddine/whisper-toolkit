@@ -70,7 +70,7 @@ Si le serveur ne répond pas dans le délai, aucune fenêtre n'est ouverte : le
 script écrit l'erreur sur sa sortie d'erreur et s'arrête, ce qui fait remonter
 le message dans la boîte de dialogue d'Automator.
 
-Quatre points méritent d'être connus avant d'y toucher :
+Cinq points méritent d'être connus avant d'y toucher :
 
 - **`--server.headless true` n'est pas cosmétique.** Sans lui, Streamlit ouvre
   son propre onglet de navigateur au démarrage : la fenêtre native s'afficherait
@@ -80,58 +80,79 @@ Quatre points méritent d'être connus avant d'y toucher :
   pendant que notre sous-processus meurt faute de port.
 - **Streamlit tourne dans sa propre session de processus.** Tuer le seul parent
   laisserait ses enfants tenir le port ; c'est le groupe entier qui est terminé.
-- **L'identité de l'app est corrigée à la main**, faute de bundle `.app` — voir
-  juste en dessous.
+- **Le menu « Deploy / Rerun / Clear cache » est retiré** (`--client.toolbarMode
+  minimal`). Il s'adresse à qui développe l'app, pas à qui l'utilise, et ses
+  actions n'ont aucun sens pour une app locale dans une fenêtre.
+- **L'identité de l'app tient à un bundle bâti exprès** — voir juste en dessous.
 
-#### Icône et nom : ce qui est corrigé, ce qui ne l'est pas
+#### Icône et nom dans le Dock
 
-La fenêtre est ouverte par le processus Python lui-même, pas par un bundle
-`.app`. macOS lui prête donc l'identité de l'interpréteur : la fusée et le nom
-« Python ». `set_dock_identity()` en rattrape deux tiers via PyObjC — déjà
-installé, puisque pywebview en dépend sur macOS :
+macOS identifie un processus par le bundle `.app` auquel appartient son
+exécutable. Le `python3.12` de Homebrew n'est qu'un relais : il se ré-exécute
+dans `Python.framework/…/Resources/Python.app`, dont l'`Info.plist` annonce
+« Python » et une fusée. Toute l'identité venait donc de l'interpréteur.
+
+`scripts/make_launcher_bundle.sh` construit le costume qui manquait : une copie
+de ce `Python.app`, sous `~/Library/Application Support/Whisper Toolkit/`, avec
+notre `Info.plist` et notre icône. Même binaire, identité à nous. L'original
+n'est jamais modifié, et le bundle produit garde sa provenance dans
+`Contents/Resources/ORIGINE.txt`.
 
 | Ce qu'on voit | Avant | Après |
 |---|---|---|
 | Icône du Dock | fusée Python | **micro** ✅ |
 | Nom du menu, à côté du logo Apple | Python | **Whisper Toolkit** ✅ |
-| Infobulle du Dock, au survol | Python | Python ❌ |
+| Infobulle du Dock, au survol | Python | **Whisper Toolkit** ✅ |
+| Nom du processus (`ps`, moniteur d'activité) | Python | **Whisper Toolkit** ✅ |
 
-L'infobulle résiste parce qu'elle ne vient pas du processus : LaunchServices la
-lit dans le bundle sur le disque, `org.python.python`. Écrire `CFBundleName` à
-l'exécution arrive trop tard pour elle, et `NSProcessInfo.setProcessName_()` n'y
-change rien non plus — les deux ont été essayés et vérifiés à l'écran.
+Quatre détails décident du résultat, et chacun se venge en silence :
 
-**Deux icônes apparaissent dans le Dock**, et c'est la même cause. L'applet
-Automator reste en vie tant que son script tourne : il occupe une tuile, le
-processus Python en occupe une seconde. C'est antérieur à la correction
-ci-dessus — on voyait « micro + fusée », on voit maintenant « micro + micro »,
-ce qui rend le doublon plus visible mais ne l'a pas créé. Vérifié en relançant
-l'app avec et sans le correctif.
+- **`__PYVENV_LAUNCHER__` est vital.** Lancer le binaire du bundle directement
+  court-circuite `venv/bin/python` : plus de streamlit, plus de pywebview. Cette
+  variable — celle-là même dont le relais de Homebrew se sert pour survivre à sa
+  ré-exécution — remet l'interpréteur dans le venv. C'est l'applet qui la pose.
+- **C'est le nom de fichier du bundle que le Dock affiche**, pas `CFBundleName`.
+  Un bundle nommé `WhisperToolkitLauncher.app` donne une infobulle
+  « WhisperToolkitLauncher », `Info.plist` impeccable ou non. D'où
+  `Whisper Toolkit.app`, à l'identique.
+- **Renommer l'exécutable interne** fait suivre le nom du processus dans `ps` et
+  le moniteur d'activité, que l'`Info.plist` seul ne change pas.
+- **Il faut resigner.** Retoucher l'`Info.plist` d'un binaire signé invalide le
+  sceau, et macOS refuse alors de lancer le bundle.
 
-Un demi-remède existe, si le doublon gêne plus que l'infobulle : faire lancer le
-script en arrière-plan par l'applet (`python launch_desktop.py &`), qui rend
-alors la main et quitte aussitôt. Il ne resterait qu'une tuile — micro, mais
-nommée « Python » — au prix de la boîte de dialogue d'Automator, qui affiche
-aujourd'hui les erreurs de démarrage. Non fait.
+`set_dock_identity()`, dans `launch_desktop.py`, fait double emploi une fois
+l'app lancée par l'applet — mais reste utile en développement, quand on lance
+`python launch_desktop.py` depuis un terminal, sans passer par le bundle.
 
-**Pour aller jusqu'au bout, il faudrait un vrai bundle** — `py2app`, avec son
-propre `Info.plist` (`CFBundleName`, `CFBundleIconFile`, `CFBundleIdentifier`).
-Un seul processus, donc une seule tuile, et le bon nom partout. Le prix : une
-dépendance de build, une étape de packaging à refaire à chaque modification du
-code, et un bundle de plusieurs centaines de Mo une fois `mlx-whisper` et
-`whisperx` embarqués. Non fait, à arbitrer.
+**Deux icônes apparaissent toujours dans le Dock** : l'applet Automator reste en
+vie tant que son script tourne et occupe une tuile, le processus Python en
+occupe une seconde. Les deux portent désormais le bon nom et la bonne icône,
+mais elles restent deux. Les réunir demanderait `py2app` — un vrai bundle
+autonome, au prix d'une dépendance de build, d'une étape de packaging à refaire
+à chaque modification du code, et de plusieurs centaines de Mo une fois
+`mlx-whisper` et `whisperx` embarqués. Non fait, à arbitrer.
 
 #### L'app Automator
 
 `Whisper Toolkit.app` n'est pas versionnée ici — c'est un applet Automator qui
-vit dans `/Applications`. Pour la recréer : Automator › Application › action
-*Exécuter un script Shell*, shell `/bin/zsh`, avec exactement ce contenu :
+vit dans `/Applications`. Pour la recréer, construire d'abord le bundle :
+
+```bash
+./scripts/make_launcher_bundle.sh
+```
+
+puis Automator › Application › action *Exécuter un script Shell*, shell
+`/bin/zsh`, avec exactement ce contenu :
 
 ```bash
 cd ~/Code/whisper-toolkit
-source venv/bin/activate
-python launch_desktop.py
+LANCEUR="$HOME/Library/Application Support/Whisper Toolkit/Whisper Toolkit.app/Contents/MacOS/Whisper Toolkit"
+__PYVENV_LAUNCHER__="$PWD/venv/bin/python" exec "$LANCEUR" launch_desktop.py
 ```
+
+Le bundle est à reconstruire après chaque mise à jour de Python par Homebrew :
+le binaire copié pointe vers la version exacte du framework, qu'un `brew
+upgrade` déplace.
 
 Son icône se régénère avec `./scripts/make_app_icon.sh --apply` (voir les
 pièges macOS documentés en tête du script). Deux détails valent d'être notés si
@@ -228,7 +249,7 @@ whisper-toolkit/
 ├── test-audio/        # échantillons de test (ignoré, sauf la fixture synthétique)
 ├── output/            # transcriptions produites (non versionné)
 ├── assets/            # icône de l'app Automator (.icns + PNG source)
-├── scripts/           # outillage hors pipeline — génération de l'icône
+├── scripts/           # outillage hors pipeline — icône, bundle de lancement
 ├── src/
 │   ├── cli.py         # CLI unifié — point d'entrée, orchestration seule
 │   ├── transcribe.py  # transcription simple (mlx-whisper)

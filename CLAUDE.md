@@ -67,7 +67,7 @@ whisper-toolkit/
 ├── venv/              # environnement virtuel (non versionné)
 ├── output/            # transcriptions produites (non versionné)
 ├── assets/            # icône de l'app Automator (.icns + PNG source)
-├── scripts/           # outillage hors pipeline — génération de l'icône
+├── scripts/           # outillage hors pipeline — icône, bundle de lancement
 ├── src/
 │   ├── cli.py         # CLI unifié — point d'entrée
 │   ├── transcribe.py  # transcription simple (mlx-whisper)
