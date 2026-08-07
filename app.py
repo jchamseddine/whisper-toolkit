@@ -29,6 +29,7 @@ import streamlit as st  # noqa: E402  -- doit suivre l'ajout de src/ à sys.path
 # la construction de l'uploader. Tout le reste — `diarize`, `batch`, `youtube`,
 # `summarize` — est importé dans les fonctions qui s'en servent, sinon chaque
 # rerun de Streamlit paierait nltk et yt-dlp pour afficher trois onglets.
+from ffmpeg_path import ensure_on_path  # noqa: E402
 from transcribe import SUPPORTED_EXTENSIONS  # noqa: E402
 
 # Racine autorisée pour le champ « dossier » de l'onglet batch. Ce champ accepte
@@ -455,11 +456,27 @@ def _tab_youtube() -> None:
 def main() -> None:
     st.set_page_config(page_title="Whisper Toolkit", page_icon="🎙️", layout="centered")
 
+    # Lancée autrement que depuis un shell interactif — app Automator, Finder,
+    # launchd —, l'interface hérite d'un PATH minimal sans `/opt/homebrew/bin`.
+    # ffmpeg est alors installé mais introuvable pour les sous-processus de
+    # mlx_whisper et whisperx, qui l'appellent par son nom nu. Réparé ici, au
+    # point d'entrée concerné : le CLI, lui, part toujours d'un shell.
+    ffmpeg = ensure_on_path()
+
     st.title("🎙️ Whisper Toolkit")
     st.caption(
         "Transcription audio locale — la même chose que `python src/cli.py`, "
         "dans le navigateur. Les sorties sont écrites dans `output/`."
     )
+
+    if not ffmpeg:
+        # Sans ça, l'absence de ffmpeg ne se voit qu'au fond d'une trace, une
+        # fois le fichier déposé et le modèle chargé.
+        st.error(
+            "ffmpeg est introuvable — aucune transcription ne fonctionnera.\n\n"
+            "Installe-le (`brew install ffmpeg`), ou lance l'app depuis un "
+            "terminal où `ffmpeg` répond."
+        )
 
     single, batch, youtube = st.tabs(["Fichier unique", "Dossier (batch)", "YouTube"])
 

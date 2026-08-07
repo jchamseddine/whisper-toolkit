@@ -72,7 +72,8 @@ whisper-toolkit/
 │   ├── diarize.py     # transcription + locuteurs (whisperx)
 │   ├── batch.py       # traitement d'un dossier entier
 │   ├── youtube.py     # transcription depuis une URL (yt-dlp)
-│   └── summarize.py   # résumé d'une transcription (API Claude)
+│   ├── summarize.py   # résumé d'une transcription (API Claude)
+│   └── ffmpeg_path.py # localisation de ffmpeg, hors PATH si besoin
 └── tests/             # tests (vide pour l'instant)
 ```
 
@@ -147,6 +148,11 @@ marchent aujourd'hui :
 - **La langue n'est jamais forcée par défaut.** Forcer une langue qui n'est pas
   celle de l'audio ne produit pas une erreur mais une traduction inventée,
   fluide et indétectable dans la sortie.
+- **Ne jamais supposer que ffmpeg est dans le `PATH`.** Les trois backends
+  l'appellent en sous-processus, et un lancement hors shell interactif (app
+  Automator, Finder, launchd) n'hérite pas de `/opt/homebrew/bin`. Passer par
+  `ffmpeg_path.py` : chemin explicite quand l'appelant l'accepte — yt-dlp —,
+  `ensure_on_path()` sinon.
 
 ### Ce qui n'est pas fait
 

@@ -14,6 +14,7 @@ import unicodedata
 import yt_dlp
 
 from diarize import diarize_file, save_diarized_transcript
+from ffmpeg_path import find_ffmpeg
 from transcribe import save_transcript, transcribe_file
 
 # Les fichiers téléchargés atterrissent dans test-audio/, déjà ignoré par git :
@@ -163,6 +164,16 @@ def download_audio(url: str, output_dir: str = DEFAULT_AUDIO_DIR) -> str:
         "logger": _QuietLogger(),
         "noplaylist": True,
     }
+
+    # Chemin donné explicitement plutôt que laissé à la charge du PATH : lancé
+    # autrement que depuis un shell interactif — une app Automator, par exemple —
+    # le processus n'a pas `/opt/homebrew/bin` et yt-dlp échoue en
+    # post-traitement sur « ffprobe and ffmpeg not found », alors que ffmpeg est
+    # installé. On passe le **dossier**, pas le binaire : l'extraction audio
+    # réclame aussi ffprobe, que yt-dlp cherche à côté.
+    ffmpeg = find_ffmpeg()
+    if ffmpeg:
+        options["ffmpeg_location"] = os.path.dirname(ffmpeg)
 
     try:
         with yt_dlp.YoutubeDL(options) as ydl:

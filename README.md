@@ -143,7 +143,8 @@ whisper-toolkit/
 │   ├── diarize.py     # transcription + locuteurs (whisperx)
 │   ├── batch.py       # traitement d'un dossier entier
 │   ├── youtube.py     # transcription depuis une URL (yt-dlp)
-│   └── summarize.py   # résumé d'une transcription (API Claude)
+│   ├── summarize.py   # résumé d'une transcription (API Claude)
+│   └── ffmpeg_path.py # localisation de ffmpeg, hors PATH si besoin
 └── tests/             # tests (vide pour l'instant)
 ```
 
@@ -412,6 +413,48 @@ bord utile : un titre comme `../../etc/passwd` devient `etc_passwd`, donc aucune
 **Langue : détection automatique**, comme partout ailleurs depuis que le défaut
 `fr` a été retiré de `transcribe_file()` — voir « Langue » ci-dessous.
 
+### `ffmpeg_path.py` — retrouver ffmpeg quand le PATH ne suffit pas
+
+Tout le toolkit dépend de ffmpeg : `mlx_whisper` et `whisperx` l'appellent en
+sous-processus pour décoder l'audio, yt-dlp pour extraire la piste. Tous le
+cherchent dans le `PATH` — et c'est exactement là que ça casse.
+
+Un shell interactif charge `~/.zshrc`, donc `/opt/homebrew/bin`. Une app
+Automator, un `launchd`, un raccourci du Finder : non. Le processus hérite d'un
+PATH minimal (`/usr/bin:/bin:…`) où ffmpeg n'est pas, **alors qu'il est installé
+et parfaitement fonctionnel**. D'où une panne qui ne se produit qu'au lancement
+graphique et disparaît dès qu'on relance depuis un terminal — le pire genre de
+bug à diagnostiquer.
+
+Le module ne fait que du repérage, `shutil.which()` d'abord, emplacements
+Homebrew (Apple Silicon puis Intel) en repli. Le `PATH` reste la source
+d'autorité ; ces chemins sont le filet.
+
+Il est utilisé de **deux façons différentes**, parce que les deux familles
+d'appelants n'offrent pas les mêmes prises :
+
+| Appelant | Correctif | Pourquoi |
+|---|---|---|
+| yt-dlp | `ffmpeg_location` dans les options de téléchargement | il accepte un chemin explicite : on ne dépend plus du tout du PATH |
+| `mlx_whisper`, `whisperx` | `ensure_on_path()` au démarrage d'`app.py` | ils lancent `ffmpeg` par son nom nu, sans paramètre pour le situer — le PATH est la seule prise |
+
+À yt-dlp on passe le **dossier** et non le binaire : l'extraction audio réclame
+aussi `ffprobe`, que yt-dlp cherche à côté.
+
+`ensure_on_path()` modifie `os.environ["PATH"]`. C'est un effet de bord assumé :
+c'est précisément ce qu'héritent les sous-processus, donc ce qu'il faut réparer.
+L'appel est idempotent. Le précédent existe déjà dans le dépôt — `diarize.py`
+pose `NLTK_DATA` dans l'environnement pour la même raison.
+
+**Le correctif est posé dans `app.py`, pas dans `cli.py`.** C'est l'interface web
+qu'on lance depuis une icône ; le CLI part toujours d'un shell, qui a son PATH.
+Si un jour le CLI est lancé depuis Automator, il faudra le même appel — le
+module est là, c'est une ligne.
+
+Si ffmpeg reste introuvable, l'app le dit franchement au chargement plutôt que de
+laisser l'échec surgir au fond d'une trace, une fois le fichier déposé et le
+modèle chargé.
+
 ### `summarize.py` — la seule étape qui sort de la machine
 
 Tout le reste du toolkit tourne en local. `summarize.py` envoie du texte à
@@ -482,8 +525,13 @@ source venv/bin/activate        # Windows : venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-`ffmpeg` doit être disponible dans le `PATH` (requis par `yt-dlp` et par les
-backends Whisper).
+`ffmpeg` doit être installé — il est requis par `yt-dlp` **et** par les deux
+backends Whisper, qui décodent l'audio en l'appelant en sous-processus.
+
+Il n'a pas besoin d'être dans le `PATH` du processus : `src/ffmpeg_path.py` le
+retrouve dans les emplacements Homebrew habituels si le `PATH` ne le donne pas.
+C'est ce qui permet de lancer l'app autrement que depuis un terminal (voir
+[Test 12](#test-12--ffmpeg-introuvable-hors-shell-interactif-2026-08-07)).
 
 ### Token Hugging Face (diarisation uniquement)
 
@@ -642,6 +690,10 @@ signifie ici : lancé pour de vrai et sortie vérifiée — pas seulement compil
 | └ racine autorisée | ✅ | ✅ | ✅ | `/etc` et `../../../../etc` refusés |
 | └ grisage langue / locuteurs | ✅ | ✅ | ✅ | équivalent des avertissements du CLI |
 | └ sélecteur de langue | ✅ | ✅ | ✅ | valeur invalide impossible, `en` forcé vérifié par la traduction |
+| `src/ffmpeg_path.py` | ✅ | ✅ | ✅ | validé le 2026-08-07 sous PATH amputé (Test 12) |
+| └ `find_ffmpeg()` | ✅ | ✅ | ✅ | via `PATH`, et via le repli Homebrew quand `which` échoue |
+| └ `ensure_on_path()` | ✅ | ✅ | ✅ | `PATH` corrigé, appel idempotent vérifié |
+| └ `ffmpeg_location` (yt-dlp) | ✅ | ✅ | ✅ | téléchargement réussi sans ffmpeg dans le `PATH` |
 | `src/__init__.py` | ✅ (vide) | ✅ | n/a | simple marqueur de package |
 | Surveillance de dossier | ❌ | — | — | volontairement non implémentée |
 | `tests/` | ❌ vide | — | — | aucun test automatisé |
@@ -1233,6 +1285,58 @@ diarisation n'a **pas** été exercée depuis l'app — le chemin est le même a
 navigateur (Chromium), une seule session, aucun test de deux onglets de
 navigateur ouverts en même temps sur la même app.
 
+### Test 12 — ffmpeg introuvable hors shell interactif (2026-08-07)
+
+**Symptôme :** l'onglet YouTube échoue avec « ffprobe and ffmpeg not found.
+Please install or provide the path using --ffmpeg-location », alors que ffmpeg
+est installé et que le CLI marche. Constaté avec l'app lancée par une app
+Automator, qui exécute le script sans passer par un shell interactif complet.
+
+**Cause, reproduite à l'identique.** `ffmpeg` est dans `/opt/homebrew/bin`, que
+seul un shell ayant chargé `~/.zshrc` met dans le `PATH` :
+
+```bash
+env PATH=/usr/bin:/bin sh -c 'command -v ffmpeg'   # → rien
+```
+
+**Le bug avait deux moitiés, pas une.** Le message d'erreur ne montrait que la
+première, parce que le téléchargement échouait avant d'arriver à la seconde :
+
+| Étape de `transcribe_youtube()` | Sous PATH amputé, avant correctif |
+|---|---|
+| téléchargement yt-dlp | ❌ « ffprobe and ffmpeg not found » |
+| transcription `mlx_whisper` | ❌ « [Errno 2] No such file or directory: 'ffmpeg' » |
+
+Ne corriger que yt-dlp aurait donc déplacé la panne d'un cran au lieu de la
+lever — vérifié : avec `ffmpeg_location` seul, le téléchargement passe puis la
+transcription tombe sur `Errno 2`. D'où les deux correctifs.
+
+**Après correctif :**
+
+| Scénario | Résultat |
+|---|---|
+| `streamlit run app.py` depuis un terminal | ✅ onglet YouTube complet, transcription conforme |
+| `env PATH=/usr/bin:/bin … streamlit run app.py` | ✅ **identique**, téléchargement et transcription |
+| `cli.py youtube` depuis un terminal | ✅ aucune régression, `exit 0` |
+| `cli.py transcribe` depuis un terminal | ✅ aucune régression |
+
+Mécanique vérifiée sous `PATH=/usr/bin:/bin` : `shutil.which("ffmpeg")` retourne
+`None`, le repli Homebrew retrouve `/opt/homebrew/bin/ffmpeg`,
+`ensure_on_path()` fait passer le `PATH` à `/opt/homebrew/bin:/usr/bin:/bin`, et
+un second appel ne le duplique pas.
+
+> ⚠️ **Ce que le message d'erreur ne disait pas.** « ffmpeg not found » sur une
+> machine où `which ffmpeg` répond est presque toujours un problème de `PATH`
+> hérité, pas d'installation. Le réflexe — réinstaller ffmpeg — ne pouvait rien
+> donner ici.
+
+**Ce que ce test ne dit pas.** Le PATH restreint est *simulé* avec `env` : la
+vraie app Automator n'a pas été relancée pour confirmer, et son PATH réel n'a pas
+été relevé. `/usr/local/bin` (Homebrew sur Intel) est dans les emplacements de
+repli mais n'a jamais été exercé — cette machine est en Apple Silicon. Le cas
+« ffmpeg réellement absent de la machine » n'a pas été provoqué : la bannière
+d'erreur de l'app n'a donc jamais été vue.
+
 ### Environnement de test (vérifié le 2026-08-06)
 
 Mac M5 (`Darwin arm64`) — tout est en place :
@@ -1340,6 +1444,13 @@ Mac M5 (`Darwin arm64`) — tout est en place :
   ou en ajoutant une ligne à `LANGUAGES`. Seuls `fr` et `en` ont été exercés
   depuis l'app ; les 27 autres codes sont vérifiés valides mais jamais lancés.
 - `app.py` : testé sur Chromium uniquement, à une seule taille de fenêtre.
+- `ffmpeg_path.py` : le PATH restreint est simulé avec `env`, la vraie app
+  Automator n'a pas servi de contre-épreuve. Le repli `/usr/local/bin` (Homebrew
+  Intel) n'a jamais été exercé, et le cas « ffmpeg absent de la machine » — donc
+  la bannière d'erreur au chargement de l'app — n'a pas été provoqué.
+- `cli.py` n'appelle pas `ensure_on_path()` : lancé autrement que depuis un
+  shell, il échouerait comme l'app le faisait. Volontaire tant que le CLI part
+  d'un terminal ; le correctif tient en une ligne si ça change.
 - Le toolkit n'est pas installable (`pip install -e .`) : voir
   [Pourquoi `python src/cli.py`](#pourquoi-python-srcclipy-et-pas-une-commande-whisper-toolkit-installée).
 - Autres modèles que `whisper-large-v3-mlx`.
