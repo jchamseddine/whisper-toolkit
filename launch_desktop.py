@@ -1,32 +1,31 @@
-"""Lance l'interface Streamlit dans une fenêtre native, sans navigateur.
+"""Launch the Streamlit interface in a native window, with no browser.
 
-Troisième point d'entrée, après `src/cli.py` et `app.py` — et comme eux, il ne
-contient aucune logique métier : il démarre `app.py` puis l'affiche. Rien de ce
-qui touche à l'audio ne passe par ici.
+Third entry point, after `src/cli.py` and `app.py` — and like them, it holds no
+business logic: it starts `app.py` then displays it. Nothing that touches audio
+goes through here.
 
-Le besoin : `streamlit run app.py` ouvre un onglet de navigateur, ce qui fait de
-l'app Automator un raccourci vers Chrome plutôt qu'une application. Ce module
-enveloppe donc le serveur dans une fenêtre WebKit (pywebview) et fait en sorte
-que le serveur vive et meure avec elle.
+The need: `streamlit run app.py` opens a browser tab, which makes the Automator
+app a shortcut to Chrome rather than an application. This module therefore wraps
+the server in a WebKit window (pywebview) and makes sure the server lives and
+dies with it.
 
-Quatre choses sont moins évidentes qu'elles n'en ont l'air :
+Four things are less obvious than they look:
 
-- **`--server.headless true` est indispensable**, pas cosmétique. Sans ce
-  drapeau, Streamlit ouvre lui-même un onglet au démarrage : la fenêtre native
-  s'afficherait *en plus* du navigateur, ce qu'on cherche précisément à éviter.
-- **Le port est vérifié avant le lancement.** Sans ça, un serveur déjà en place
-  sur 8501 répondrait immédiatement au sondage : la fenêtre s'ouvrirait sur
-  l'instance étrangère pendant que notre sous-processus meurt en silence,
-  faute de port.
-- **Streamlit est démarré dans sa propre session** (`start_new_session`) pour
-  pouvoir tuer le groupe de processus entier à la fermeture. Terminer le seul
-  processus parent laisserait ses enfants tenir le port 8501.
-- **L'identité de l'app ne se joue pas ici.** Elle vient du bundle `.app` auquel
-  appartient l'exécutable, que `scripts/make_launcher_bundle.sh` fabrique et que
-  l'applet Automator invoque. `set_dock_identity()` ci-dessous n'est que le
-  filet pour les lancements directs, depuis un terminal.
+- **`--server.headless true` is indispensable**, not cosmetic. Without that
+  flag, Streamlit opens a tab of its own at startup: the native window would
+  show up *on top of* the browser, which is precisely what we are avoiding.
+- **The port is checked before launching.** Without that, a server already
+  sitting on 8501 would answer the probe immediately: the window would open on
+  the foreign instance while our subprocess dies in silence, for want of a port.
+- **Streamlit is started in its own session** (`start_new_session`) so the whole
+  process group can be killed on close. Terminating only the parent process
+  would leave its children holding port 8501.
+- **The app's identity is not decided here.** It comes from the `.app` bundle
+  the executable belongs to, which `scripts/make_launcher_bundle.sh` builds and
+  the Automator applet invokes. `set_dock_identity()` below is only the safety
+  net for direct launches, from a terminal.
 
-Lancement : `python launch_desktop.py` depuis la racine du dépôt.
+Run with: `python launch_desktop.py` from the repository root.
 """
 
 import os
@@ -42,17 +41,16 @@ HOST = "localhost"
 PORT = 8501
 URL = f"http://{HOST}:{PORT}"
 
-# Endpoint de santé de Streamlit : il ne répond que lorsque le serveur est
-# réellement prêt à servir l'app, là où une socket ouverte ne prouve que
-# l'écoute.
+# Streamlit's health endpoint: it only answers once the server is genuinely
+# ready to serve the app, where an open socket only proves it is listening.
 HEALTH_URL = f"{URL}/_stcore/health"
 
-# Marge large : le premier démarrage paie l'import de Streamlit et la
-# compilation des templates. Au-delà, c'est un échec, pas une lenteur.
+# Generous margin: the first startup pays for importing Streamlit and compiling
+# the templates. Beyond that, it is a failure, not slowness.
 STARTUP_TIMEOUT = 15.0
 POLL_INTERVAL = 0.25
 
-# Délai laissé à Streamlit pour se fermer sur SIGTERM avant le SIGKILL.
+# Grace given to Streamlit to shut down on SIGTERM before the SIGKILL.
 SHUTDOWN_GRACE = 5.0
 
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -61,41 +59,41 @@ WINDOW_TITLE = "Whisper Toolkit"
 WINDOW_WIDTH = 1200
 WINDOW_HEIGHT = 800
 
-# La même image que l'icône de l'app Automator, mais en PNG : NSImage la lit
-# directement, là où le .icns viserait le Finder.
+# The same image as the Automator app's icon, but as PNG: NSImage reads it
+# directly, where the .icns targets the Finder.
 DOCK_ICON = os.path.join(PROJECT_ROOT, "assets", "app-icon-1024.png")
 
 
 def set_dock_identity() -> None:
-    """Rattrape l'icône et le nom du Dock quand l'app est lancée sans son bundle.
+    """Fix up the Dock icon and name when the app is launched without its bundle.
 
-    macOS identifie un processus par le bundle `.app` auquel appartient son
-    exécutable. Lancée par l'applet Automator, l'app en a un, taillé pour elle
-    par `scripts/make_launcher_bundle.sh` : rien à corriger, cette fonction ne
-    fait alors que répéter ce que l'`Info.plist` dit déjà.
+    macOS identifies a process by the `.app` bundle its executable belongs to.
+    Launched by the Automator applet, the app has one, cut to measure by
+    `scripts/make_launcher_bundle.sh`: nothing to fix, and this function then
+    merely repeats what the `Info.plist` already says.
 
-    Lancée à la main — `python launch_desktop.py` depuis un terminal — elle
-    hérite en revanche du bundle de l'interpréteur, `org.python.python`, avec sa
-    fusée et son nom « Python ». C'est ce cas-là que les deux lignes ci-dessous
-    couvrent, via PyObjC, déjà installé puisque pywebview en dépend sur macOS :
+    Launched by hand — `python launch_desktop.py` from a terminal — it inherits
+    the interpreter's bundle instead, `org.python.python`, with its rocket and
+    its "Python" name. That is the case the two lines below cover, via PyObjC,
+    already installed since pywebview depends on it on macOS:
 
-    - `setApplicationIconImage_()` remplace l'icône du Dock ;
-    - `CFBundleName`, écrit dans le dictionnaire du bundle principal, renomme le
-      menu de l'app à côté du logo Apple. C'est une mutation du dictionnaire
-      vivant du processus courant, pas une écriture sur disque : rien n'est
-      modifié hors du processus.
+    - `setApplicationIconImage_()` replaces the Dock icon;
+    - `CFBundleName`, written into the main bundle's dictionary, renames the
+      app menu next to the Apple logo. This mutates the living dictionary of
+      the current process, not anything on disk: nothing is modified outside
+      the process.
 
-    L'ordre compte pour le nom : il doit être posé **avant** que `NSApplication`
-    existe, car c'est à sa création que le menu est construit. D'où l'appel avant
-    l'import de `webview`, qui instancie l'application Cocoa.
+    Order matters for the name: it must be set **before** `NSApplication`
+    exists, because the menu is built at its creation. Hence the call before
+    importing `webview`, which instantiates the Cocoa application.
 
-    Ce que ces deux lignes n'atteignent pas, et qui explique le bundle :
-    l'infobulle du Dock et le nom du processus viennent du bundle sur le disque,
-    hors de portée de tout réglage à l'exécution — `NSProcessInfo.setProcessName_()`
-    y compris, essayé sans effet.
+    What those two lines do not reach, and what explains the bundle: the Dock
+    tooltip and the process name come from the bundle on disk, out of reach of
+    any runtime setting — `NSProcessInfo.setProcessName_()` included, tried
+    without effect.
 
-    Purement cosmétique : tout échec est silencieux, une fenêtre à la mauvaise
-    icône valant mieux que pas de fenêtre.
+    Purely cosmetic: every failure is silent, a window with the wrong icon being
+    better than no window.
     """
     try:
         from AppKit import NSApplication, NSImage
@@ -113,26 +111,26 @@ def set_dock_identity() -> None:
 
 
 def allow_microphone() -> None:
-    """Ajoute à pywebview le délégué sans lequel WKWebView refuse le micro.
+    """Add to pywebview the delegate without which WKWebView refuses the mic.
 
-    L'onglet « Dictée rapide » enregistre par `getUserMedia`. Dans un navigateur,
-    c'est le navigateur qui demande l'autorisation ; dans un WKWebView, c'est
-    l'application hôte, via
+    The "Quick dictation" tab records through `getUserMedia`. In a browser, the
+    browser asks for permission; in a WKWebView, the host application is asked,
+    via
     `webView:requestMediaCapturePermissionForOrigin:initiatedByFrame:type:decisionHandler:`.
-    pywebview 6.2.1 ne l'implémente pas — son `BrowserDelegate` couvre les
-    panneaux d'alerte et le sélecteur de fichiers, pas la capture — et WebKit
-    refuse alors la demande. La méthode est donc greffée sur sa classe.
+    pywebview 6.2.1 does not implement it — its `BrowserDelegate` covers alert
+    panels and the file picker, not capture — and WebKit then refuses the
+    request. The method is therefore grafted onto its class.
 
-    Deux garde-fous s'ajoutent à celui-ci, et ce n'est pas redondant : la clé
-    `NSMicrophoneUsageDescription` de l'`Info.plist` du bundle, sans laquelle
-    macOS tuerait le processus, et l'autorisation micro que le système demande à
-    l'utilisateur à la première tentative. Accorder ici ne court-circuite donc
-    rien : cela laisse seulement la question arriver jusqu'à lui.
+    Two other guards sit alongside this one, and that is not redundant: the
+    `NSMicrophoneUsageDescription` key in the bundle's `Info.plist`, without
+    which macOS would kill the process, and the microphone permission the system
+    asks the user for on the first attempt. Granting here short-circuits
+    nothing: it only lets the question reach them.
 
-    Greffer une méthode sur la classe d'une dépendance reste un correctif à
-    surveiller : si une version de pywebview implémente ce délégué, celui-ci
-    devient inutile et doit sauter. L'échec est silencieux — sans micro, les
-    autres onglets marchent encore.
+    Grafting a method onto a dependency's class remains a patch to keep an eye
+    on: if a version of pywebview implements this delegate, this one becomes
+    useless and must go. Failure is silent — without a mic, the other tabs still
+    work.
     """
     try:
         import objc
@@ -140,28 +138,28 @@ def allow_microphone() -> None:
     except (ImportError, AttributeError):
         return
 
-    delegue = getattr(BrowserView, "BrowserDelegate", None)
-    if delegue is None:
+    delegate = getattr(BrowserView, "BrowserDelegate", None)
+    if delegate is None:
         return
 
-    selecteur = (
+    selector = (
         b"webView:requestMediaCapturePermissionForOrigin:"
         b"initiatedByFrame:type:decisionHandler:"
     )
-    if delegue.instancesRespondToSelector_(selecteur.decode()):
-        return  # déjà fourni par pywebview : ne rien écraser
+    if delegate.instancesRespondToSelector_(selector.decode()):
+        return  # already provided by pywebview: overwrite nothing
 
-    def accorder(self, webview_, origin, frame, capture_type, decision_handler):
+    def grant(self, webview_, origin, frame, capture_type, decision_handler):
         decision_handler(1)  # WKPermissionDecisionGrant
 
     objc.classAddMethods(
-        delegue,
+        delegate,
         [
             objc.selector(
-                accorder,
-                selector=selecteur,
-                # v@:@@@q@? — rien en retour, quatre objets, le type de capture
-                # en NSInteger, et le bloc de réponse.
+                grant,
+                selector=selector,
+                # v@:@@@q@? — nothing returned, four objects, the capture type
+                # as an NSInteger, and the reply block.
                 signature=b"v@:@@@q@?",
             )
         ],
@@ -169,15 +167,15 @@ def allow_microphone() -> None:
 
 
 def port_is_taken(host: str, port: int) -> bool:
-    """Vrai si quelque chose écoute déjà sur ce port."""
+    """True if something is already listening on this port."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.settimeout(0.5)
         return sock.connect_ex((host, port)) == 0
 
 
 def start_streamlit() -> subprocess.Popen:
-    """Démarre `streamlit run app.py`, sans navigateur, dans sa propre session."""
-    commande = [
+    """Start `streamlit run app.py`, browserless, in its own session."""
+    command = [
         sys.executable,
         "-m",
         "streamlit",
@@ -187,31 +185,32 @@ def start_streamlit() -> subprocess.Popen:
         HOST,
         "--server.port",
         str(PORT),
-        # Empêche Streamlit d'ouvrir un onglet de navigateur de son côté.
+        # Stops Streamlit from opening a browser tab of its own.
         "--server.headless",
         "true",
-        # Retire le menu « Deploy / Rerun / Clear cache » du coin supérieur
-        # droit : il s'adresse à qui développe l'app, pas à qui l'utilise, et
-        # ses actions n'ont aucun sens pour une app locale dans une fenêtre.
+        # Removes the "Deploy / Rerun / Clear cache" menu from the top right
+        # corner: it addresses whoever develops the app, not whoever uses it,
+        # and its actions make no sense for a local app in a window.
         "--client.toolbarMode",
         "minimal",
     ]
-    # Les flux restent hérités : lancée par Automator, l'app n'a pas de terminal,
-    # et ses sorties sont dirigées vers ~/Library/Logs/WhisperToolkit.log, seule
-    # trace en cas de problème. Rediriger vers un tube les rendrait invisibles.
-    return subprocess.Popen(commande, cwd=PROJECT_ROOT, start_new_session=True)
+    # The streams stay inherited: launched by Automator, the app has no
+    # terminal, and its output is directed to ~/Library/Logs/WhisperToolkit.log,
+    # the only trace when something goes wrong. Redirecting to a pipe would make
+    # it invisible.
+    return subprocess.Popen(command, cwd=PROJECT_ROOT, start_new_session=True)
 
 
 def wait_until_ready(process: subprocess.Popen, timeout: float) -> bool:
-    """Sonde le serveur jusqu'à réponse. Faux si le délai expire ou s'il meurt."""
-    limite = time.monotonic() + timeout
-    while time.monotonic() < limite:
-        # Un serveur mort ne répondra jamais : inutile d'attendre le délai plein.
+    """Probe the server until it answers. False if the delay expires or it dies."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        # A dead server will never answer: no point waiting out the full delay.
         if process.poll() is not None:
             return False
         try:
-            with urllib.request.urlopen(HEALTH_URL, timeout=1) as reponse:
-                if reponse.status == 200:
+            with urllib.request.urlopen(HEALTH_URL, timeout=1) as response:
+                if response.status == 200:
                     return True
         except (urllib.error.URLError, OSError):
             pass
@@ -220,17 +219,17 @@ def wait_until_ready(process: subprocess.Popen, timeout: float) -> bool:
 
 
 def stop_streamlit(process: subprocess.Popen) -> None:
-    """Termine le serveur et toute sa descendance, sans rien laisser sur le port."""
+    """Terminate the server and all its descendants, leaving nothing on the port."""
     if process.poll() is not None:
         return
     try:
-        groupe = os.getpgid(process.pid)
+        group = os.getpgid(process.pid)
     except ProcessLookupError:
         return
 
     for signal_ in (signal.SIGTERM, signal.SIGKILL):
         try:
-            os.killpg(groupe, signal_)
+            os.killpg(group, signal_)
         except ProcessLookupError:
             return
         try:
@@ -241,13 +240,12 @@ def stop_streamlit(process: subprocess.Popen) -> None:
 
 
 def _quit_on_sigterm(signum, _frame) -> None:
-    """Transforme SIGTERM en sortie ordinaire, pour que le `finally` s'exécute.
+    """Turn SIGTERM into an ordinary exit, so the `finally` runs.
 
-    Sans ça, un `killall` ou un « Forcer à quitter » tue le lanceur sans dérouler
-    sa pile : Streamlit survit alors à son parent et garde le port 8501. Le
-    filet reste imparfait — pendant la boucle Cocoa, le signal n'est traité
-    qu'au prochain passage par du bytecode Python — mais il couvre le cas
-    courant.
+    Without this, a `killall` or a "Force Quit" kills the launcher without
+    unwinding its stack: Streamlit then outlives its parent and keeps port 8501.
+    The net stays imperfect — during the Cocoa loop, the signal is only handled
+    at the next pass through Python bytecode — but it covers the common case.
     """
     raise SystemExit(128 + signum)
 
@@ -257,34 +255,34 @@ def main() -> int:
 
     if port_is_taken(HOST, PORT):
         print(
-            f"Le port {PORT} est déjà occupé : une instance de Whisper Toolkit "
-            f"tourne probablement déjà. Ferme-la, ou libère le port avec "
-            f"`lsof -i :{PORT}`, puis relance.",
+            f"Port {PORT} is already taken: an instance of Whisper Toolkit is "
+            f"probably already running. Close it, or free the port with "
+            f"`lsof -i :{PORT}`, then run again.",
             file=sys.stderr,
         )
         return 1
 
-    serveur = start_streamlit()
+    server = start_streamlit()
     try:
-        if not wait_until_ready(serveur, STARTUP_TIMEOUT):
-            if serveur.poll() is not None:
-                raison = f"le serveur s'est arrêté (code {serveur.returncode})"
+        if not wait_until_ready(server, STARTUP_TIMEOUT):
+            if server.poll() is not None:
+                reason = f"the server stopped (code {server.returncode})"
             else:
-                raison = f"pas de réponse après {STARTUP_TIMEOUT:.0f} s"
+                reason = f"no answer after {STARTUP_TIMEOUT:.0f} s"
             print(
-                f"Streamlit n'a pas démarré : {raison}. "
-                f"La fenêtre n'a pas été ouverte ; les détails sont au-dessus.",
+                f"Streamlit did not start: {reason}. "
+                f"The window was not opened; the details are above.",
                 file=sys.stderr,
             )
             return 1
 
         set_dock_identity()
 
-        # Importé ici seulement : pywebview tire tout PyObjC avec lui, et le
-        # payer avant de savoir si le serveur répond ne sert à rien.
+        # Imported here only: pywebview drags all of PyObjC along with it, and
+        # paying for that before knowing whether the server answers is pointless.
         import webview
 
-        # Après l'import, forcément : la classe à corriger vit dans pywebview.
+        # After the import, necessarily: the class to patch lives in pywebview.
         allow_microphone()
 
         webview.create_window(
@@ -293,11 +291,11 @@ def main() -> int:
             width=WINDOW_WIDTH,
             height=WINDOW_HEIGHT,
         )
-        # Bloque jusqu'à la fermeture de la fenêtre par l'utilisateur.
+        # Blocks until the user closes the window.
         webview.start()
         return 0
     finally:
-        stop_streamlit(serveur)
+        stop_streamlit(server)
 
 
 if __name__ == "__main__":

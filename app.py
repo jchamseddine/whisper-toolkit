@@ -1,16 +1,16 @@
-"""Interface web Streamlit, en plus du CLI — pas à sa place.
+"""Streamlit web interface, alongside the CLI — not in its place.
 
-Pendant exact de `cli.py` : aucune logique de transcription, de diarisation, de
-téléchargement ni de résumé n'est écrite ici. Chaque onglet appelle les
-fonctions des modules qui les portent, puis affiche ce qu'elles ont produit. Les
-deux points d'entrée partagent donc le même code métier, et les sorties
-atterrissent au même endroit (`output/`), sous les mêmes noms.
+An exact counterpart of `cli.py`: no transcription, diarization, download or
+summarization logic is written here. Each tab calls the functions of the modules
+that carry them, then displays what they produced. Both entry points therefore
+share the same business code, and outputs land in the same place (`output/`),
+under the same names.
 
-Une exception assumée : l'onglet « Dictée rapide », qui n'existe pas côté CLI et
-n'écrit rien — ni l'audio, ni le texte, sauf demande explicite. Voir
-`_transcribe_recording()`.
+One deliberate exception: the "Quick dictation" tab, which has no CLI equivalent
+and writes nothing — neither the audio nor the text, unless explicitly asked.
+See `_transcribe_recording()`.
 
-Lancement : `streamlit run app.py` depuis la racine du dépôt.
+Run with: `streamlit run app.py` from the repository root.
 """
 
 import hashlib
@@ -19,121 +19,120 @@ import sys
 import tempfile
 from datetime import datetime
 
-# `python src/cli.py` place `src/` en tête de `sys.path`, ce qui fait marcher les
-# imports plats (`from transcribe import …`) des modules du toolkit.
-# `streamlit run app.py` y place la racine du dépôt à la place : sans cet ajout,
-# aucun module de `src/` n'est importable.
+# `python src/cli.py` puts `src/` at the front of `sys.path`, which is what
+# makes the toolkit modules' flat imports (`from transcribe import …`) work.
+# `streamlit run app.py` puts the repository root there instead: without this
+# addition, no module from `src/` is importable.
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 SRC_DIR = os.path.join(PROJECT_ROOT, "src")
 if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
-import streamlit as st  # noqa: E402  -- doit suivre l'ajout de src/ à sys.path
+import streamlit as st  # noqa: E402  -- must follow the src/ addition to sys.path
 
-# Même règle qu'en tête de `cli.py` : seuls les imports gratuits sont faits ici.
-# `transcribe` ne coûte rien (mlx_whisper est paresseux) et sa constante sert dès
-# la construction de l'uploader. Tout le reste — `diarize`, `batch`, `youtube`,
-# `summarize` — est importé dans les fonctions qui s'en servent, sinon chaque
-# rerun de Streamlit paierait nltk et yt-dlp pour afficher trois onglets.
+# Same rule as at the top of `cli.py`: only free imports happen here.
+# `transcribe` costs nothing (mlx_whisper is lazy) and its constant is needed as
+# early as the uploader's construction. Everything else — `diarize`, `batch`,
+# `youtube`, `summarize` — is imported inside the functions that use it,
+# otherwise every Streamlit rerun would pay for nltk and yt-dlp just to display
+# a few tabs.
 from ffmpeg_path import ensure_on_path  # noqa: E402
 from transcribe import SUPPORTED_EXTENSIONS  # noqa: E402
 
-# Racine autorisée pour le champ « dossier » de l'onglet batch. Ce champ accepte
-# un chemin tapé à la main : sans borne, il suffirait d'exposer l'app sur le
-# réseau pour laisser n'importe qui lister et transcrire n'importe quel dossier
-# de la machine. L'usage prévu est local, mais le garde-fou est posé maintenant
-# plutôt qu'après. `WHISPER_TOOLKIT_ROOT` permet d'élargir la racine en
-# connaissance de cause (ex. `~/Documents/cours`).
+# Allowed root for the batch tab's "folder" field. That field accepts a
+# hand-typed path: with no bound, merely exposing the app on the network would
+# let anyone list and transcribe any folder on the machine. The intended use is
+# local, but the guard rail is put in now rather than later.
+# `WHISPER_TOOLKIT_ROOT` widens the root deliberately (e.g. `~/Documents/courses`).
 BROWSE_ROOT = os.path.realpath(os.environ.get("WHISPER_TOOLKIT_ROOT", PROJECT_ROOT))
 
 LANGUAGE_HELP = (
-    "À laisser sur « Détection automatique » sauf besoin précis : forcer une "
-    "langue qui n'est pas celle de l'audio ne produit pas une erreur mais une "
-    "traduction inventée, fluide et indétectable dans la sortie. "
-    "Tape pour filtrer la liste."
+    "Leave this on “Auto-detect” unless you have a precise need: forcing a "
+    "language that is not the audio's does not raise an error, it produces an "
+    "invented translation, fluent and undetectable in the output. "
+    "Type to filter the list."
 )
 
-# Langues du sélecteur, code Whisper en valeur. `None` laisse la détection
-# automatique, qui reste le défaut partout dans le toolkit.
+# Languages of the selector, Whisper code as the value. `None` leaves detection
+# automatic, which stays the default everywhere in the toolkit.
 #
-# C'est un sous-ensemble courant, pas les 100 langues que Whisper connaît. La
-# liste complète n'est lisible que dans `mlx_whisper.tokenizer.LANGUAGES`, qui
-# ne s'installe que sur Apple Silicon : la tirer de là rendrait l'app
-# inaffichable ailleurs — et coûterait 0,8 s au démarrage — pour un menu
-# déroulant. Ajouter une langue ici tient en une ligne, et le CLI reste ouvert à
-# n'importe quel code Whisper via `--language`.
+# This is a common subset, not the 100 languages Whisper knows. The full list is
+# only readable in `mlx_whisper.tokenizer.LANGUAGES`, which only installs on
+# Apple Silicon: pulling it from there would make the app undisplayable
+# elsewhere — and cost 0.8 s at startup — for a dropdown. Adding a language here
+# takes one line, and the CLI stays open to any Whisper code via `--language`.
 #
-# Les codes ont été vérifiés un à un contre `mlx_whisper.tokenizer.LANGUAGES`.
+# The codes were checked one by one against `mlx_whisper.tokenizer.LANGUAGES`.
 LANGUAGES: dict[str, str | None] = {
-    "Détection automatique": None,
-    "Français": "fr",
-    "Anglais": "en",
-    "Espagnol": "es",
-    "Allemand": "de",
-    "Italien": "it",
-    "Portugais": "pt",
-    "Néerlandais": "nl",
-    "Arabe": "ar",
+    "Auto-detect": None,
+    "French": "fr",
+    "English": "en",
+    "Spanish": "es",
+    "German": "de",
+    "Italian": "it",
+    "Portuguese": "pt",
+    "Dutch": "nl",
+    "Arabic": "ar",
     "Catalan": "ca",
-    "Chinois": "zh",
-    "Coréen": "ko",
-    "Danois": "da",
-    "Finnois": "fi",
-    "Grec": "el",
-    "Hébreu": "he",
+    "Chinese": "zh",
+    "Korean": "ko",
+    "Danish": "da",
+    "Finnish": "fi",
+    "Greek": "el",
+    "Hebrew": "he",
     "Hindi": "hi",
-    "Hongrois": "hu",
-    "Indonésien": "id",
-    "Japonais": "ja",
-    "Norvégien": "no",
-    "Polonais": "pl",
-    "Roumain": "ro",
-    "Russe": "ru",
-    "Suédois": "sv",
-    "Tchèque": "cs",
-    "Thaï": "th",
-    "Turc": "tr",
-    "Ukrainien": "uk",
-    "Vietnamien": "vi",
+    "Hungarian": "hu",
+    "Indonesian": "id",
+    "Japanese": "ja",
+    "Norwegian": "no",
+    "Polish": "pl",
+    "Romanian": "ro",
+    "Russian": "ru",
+    "Swedish": "sv",
+    "Czech": "cs",
+    "Thai": "th",
+    "Turkish": "tr",
+    "Ukrainian": "uk",
+    "Vietnamese": "vi",
 }
 
 
 def _resolve_browse_path(raw: str) -> str:
-    """Résout un chemin saisi et refuse tout ce qui sort de `BROWSE_ROOT`.
+    """Resolve a typed path and refuse anything outside `BROWSE_ROOT`.
 
-    Les chemins relatifs partent de la racine autorisée ; un chemin absolu est
-    gardé tel quel par `os.path.join`, puis rejeté par le test de confinement.
-    `realpath` est indispensable : il résout `..` et les liens symboliques, donc
-    un lien posé dans le dépôt ne peut pas servir de passerelle vers `/`.
+    Relative paths start from the allowed root; an absolute path is kept as-is
+    by `os.path.join`, then rejected by the containment test. `realpath` is
+    indispensable: it resolves `..` and symbolic links, so a link placed in the
+    repository cannot serve as a gateway to `/`.
     """
     candidate = raw.strip()
     if not candidate:
-        raise ValueError("Indique un dossier à traiter.")
+        raise ValueError("Give a folder to process.")
 
     resolved = os.path.realpath(
         os.path.join(BROWSE_ROOT, os.path.expanduser(candidate))
     )
     if resolved != BROWSE_ROOT and not resolved.startswith(BROWSE_ROOT + os.sep):
         raise ValueError(
-            f"Chemin hors de la racine autorisée : {resolved}\n"
-            f"Seul {BROWSE_ROOT} et ses sous-dossiers sont accessibles. "
-            f"Définis WHISPER_TOOLKIT_ROOT avant de lancer l'app pour l'élargir."
+            f"Path outside the allowed root: {resolved}\n"
+            f"Only {BROWSE_ROOT} and its subfolders are reachable. "
+            f"Set WHISPER_TOOLKIT_ROOT before launching the app to widen it."
         )
 
     return resolved
 
 
 def _save_upload(uploaded, directory: str) -> str:
-    """Écrit le fichier reçu dans `directory` et retourne son chemin.
+    """Write the received file into `directory` and return its path.
 
-    Le nom vient du navigateur, donc de l'extérieur : il est réduit à son
-    basename, sinon un nom comme `../../x.wav` ferait écrire hors du dossier
-    temporaire. Il est conservé par ailleurs, parce que c'est lui qui donne son
-    nom à la sortie (`output/{nom}.txt`) — exactement comme en CLI.
+    The name comes from the browser, hence from the outside: it is reduced to
+    its basename, otherwise a name like `../../x.wav` would write outside the
+    temporary directory. It is otherwise preserved, because it is what gives the
+    output its name (`output/{name}.txt`) — exactly as in the CLI.
     """
     name = os.path.basename(uploaded.name.replace("\\", "/"))
     if not name or name in {".", ".."}:
-        raise ValueError(f"Nom de fichier inexploitable : {uploaded.name!r}")
+        raise ValueError(f"Unusable file name: {uploaded.name!r}")
 
     path = os.path.join(directory, name)
     with open(path, "wb") as f:
@@ -143,45 +142,45 @@ def _save_upload(uploaded, directory: str) -> str:
 
 
 def _audio_options(prefix: str) -> dict:
-    """Affiche le jeu d'options commun aux trois onglets et retourne les valeurs.
+    """Render the option set common to three tabs and return the values.
 
-    Pendant du parseur parent `audio` de `cli.py` : les options sont déclarées
-    une seule fois, pas trois. `prefix` sépare les clés de widgets, que Streamlit
-    veut uniques dans toute l'app.
+    Counterpart of `cli.py`'s parent `audio` parser: the options are declared
+    once, not three times. `prefix` separates the widget keys, which Streamlit
+    wants unique across the whole app.
     """
     left, right = st.columns(2)
 
     with left:
         diarize = st.checkbox(
-            "Identifier les locuteurs",
+            "Identify speakers",
             key=f"{prefix}_diarize",
-            help="Passe par whisperx au lieu de mlx-whisper. Tourne sur CPU : "
-            "comptez plusieurs fois la durée de l'audio.",
+            help="Goes through whisperx instead of mlx-whisper. Runs on CPU: "
+            "expect several times the audio's duration.",
         )
         num_speakers = st.number_input(
-            "Nombre de locuteurs, si connu",
+            "Number of speakers, if known",
             min_value=1,
             max_value=20,
             value=None,
             step=1,
             key=f"{prefix}_num_speakers",
             disabled=not diarize,
-            placeholder="détection automatique",
+            placeholder="auto-detect",
         )
 
     with right:
         summarize = st.checkbox(
-            "Résumer via l'API Claude",
+            "Summarize via the Claude API",
             key=f"{prefix}_summarize",
-            help="Seule option payante, et seule étape qui sorte de la machine : "
-            "le texte est envoyé à l'API Claude.",
+            help="The only paid option, and the only step that leaves the "
+            "machine: the text is sent to the Claude API.",
         )
-        # Un sélecteur et non un champ libre : une valeur inventée ne serait pas
-        # rejetée par Whisper, elle produirait une traduction. Le champ est grisé
-        # en diarisation, où whisperx détecte la langue de son côté — c'est
-        # l'équivalent natif de l'avertissement que le CLI imprime.
+        # A selector rather than a free-text field: an invented value would not
+        # be rejected by Whisper, it would produce a translation. The field is
+        # greyed out when diarizing, where whisperx detects the language on its
+        # own — the native equivalent of the warning the CLI prints.
         language_label = st.selectbox(
-            "Langue",
+            "Language",
             options=list(LANGUAGES),
             index=0,
             key=f"{prefix}_language",
@@ -198,14 +197,14 @@ def _audio_options(prefix: str) -> dict:
 
 
 def _result_from_output(output_path: str, options: dict) -> dict:
-    """Relit la sortie écrite et, si demandé, enchaîne le résumé.
+    """Re-read the written output and, if asked, chain the summary.
 
-    La transcription est relue depuis le disque plutôt que remise en forme ici,
-    pour la même raison que dans `cli.py` : le format `[SPEAKER_XX] texte` n'a
-    qu'une définition, dans `diarize.py`.
+    The transcript is re-read from disk rather than reformatted here, for the
+    same reason as in `cli.py`: the `[SPEAKER_XX] text` format has a single
+    definition, in `diarize.py`.
 
-    Un résumé en échec n'efface pas la transcription, qui est déjà écrite : il
-    est rapporté à part.
+    A failing summary does not erase the transcript, which is already written:
+    it is reported separately.
     """
     with open(output_path, encoding="utf-8") as f:
         text = f.read()
@@ -222,7 +221,7 @@ def _result_from_output(output_path: str, options: dict) -> dict:
         from summarize import save_summary, summarize_text
 
         try:
-            with st.spinner("Résumé via l'API Claude…"):
+            with st.spinner("Summarizing via the Claude API…"):
                 summary = summarize_text(text)
         except ValueError as error:
             result["summary_error"] = str(error)
@@ -234,19 +233,19 @@ def _result_from_output(output_path: str, options: dict) -> dict:
 
 
 def _transcribe_one(audio_path: str, options: dict) -> dict:
-    """Transcrit un fichier déjà posé sur le disque, avec ou sans locuteurs."""
+    """Transcribe a file already on disk, with or without speakers."""
     label = os.path.basename(audio_path)
 
     if options["diarize"]:
         from diarize import diarize_file, save_diarized_transcript
 
-        with st.spinner(f"Diarisation de {label}… (CPU, comptez large)"):
+        with st.spinner(f"Diarizing {label}… (CPU, allow plenty of time)"):
             segments = diarize_file(audio_path, num_speakers=options["num_speakers"])
             output_path = save_diarized_transcript(segments, audio_path)
     else:
         from transcribe import save_transcript, transcribe_file
 
-        with st.spinner(f"Transcription de {label}…"):
+        with st.spinner(f"Transcribing {label}…"):
             text = transcribe_file(audio_path, language=options["language"])
             output_path = save_transcript(text, audio_path)
 
@@ -254,15 +253,15 @@ def _transcribe_one(audio_path: str, options: dict) -> dict:
 
 
 def _render_result(key: str) -> None:
-    """Affiche la transcription mémorisée pour un onglet, et son résumé."""
+    """Display the transcript remembered for a tab, and its summary."""
     result = st.session_state.get(key)
     if not result:
         return
 
-    st.success(f"Transcription enregistrée : {result['path']}")
-    st.text_area("Transcription", result["text"], height=280, key=f"{key}_text_area")
+    st.success(f"Transcript saved: {result['path']}")
+    st.text_area("Transcript", result["text"], height=280, key=f"{key}_text_area")
     st.download_button(
-        "Télécharger le .txt",
+        "Download the .txt",
         data=result["text"],
         file_name=os.path.basename(result["path"]),
         mime="text/plain",
@@ -273,11 +272,11 @@ def _render_result(key: str) -> None:
         st.error(result["summary_error"])
     elif result["summary"]:
         st.divider()
-        st.markdown("#### Résumé")
+        st.markdown("#### Summary")
         st.markdown(result["summary"])
-        st.caption(f"Résumé enregistré : {result['summary_path']}")
+        st.caption(f"Summary saved: {result['summary_path']}")
         st.download_button(
-            "Télécharger le résumé",
+            "Download the summary",
             data=result["summary"],
             file_name=os.path.basename(result["summary_path"]),
             mime="text/plain",
@@ -287,18 +286,18 @@ def _render_result(key: str) -> None:
 
 def _tab_single() -> None:
     uploaded = st.file_uploader(
-        "Fichier audio",
+        "Audio file",
         type=[extension.lstrip(".") for extension in SUPPORTED_EXTENSIONS],
         key="single_upload",
     )
     options = _audio_options("single")
 
     if st.button(
-        "Transcrire", key="single_run", type="primary", disabled=uploaded is None
+        "Transcribe", key="single_run", type="primary", disabled=uploaded is None
     ):
-        # Le fichier reçu ne sert qu'à alimenter le pipeline : il est écrit dans
-        # un dossier temporaire, effacé à la sortie du bloc. Seule la
-        # transcription, dans `output/`, survit.
+        # The received file only serves to feed the pipeline: it is written into
+        # a temporary folder, erased when the block exits. Only the transcript,
+        # in `output/`, survives.
         with tempfile.TemporaryDirectory() as workdir:
             try:
                 audio_path = _save_upload(uploaded, workdir)
@@ -311,10 +310,10 @@ def _tab_single() -> None:
 
 
 def _run_folder(folder: str, options: dict, force: bool) -> dict:
-    """Traite un dossier, puis en résume les transcriptions si demandé."""
+    """Process a folder, then summarize its transcripts if asked."""
     from batch import process_folder
 
-    with st.spinner(f"Traitement de {folder}…"):
+    with st.spinner(f"Processing {folder}…"):
         summary = process_folder(
             folder,
             diarize=options["diarize"],
@@ -325,13 +324,13 @@ def _run_folder(folder: str, options: dict, force: bool) -> dict:
 
     summaries_failed = None
     if options["summarize"] and (summary["success"] or summary["skipped"]):
-        # La règle de résumé d'un lot — résumer aussi les fichiers sautés par la
-        # reprise, mais pas ceux dont le `_summary.txt` existe déjà — vit dans
-        # `cli.summarize_batch()`. On l'appelle plutôt que de la réécrire ici :
-        # dupliquée, elle finirait par diverger de celle du CLI.
+        # The batch summarization rule — also summarize the files skipped by the
+        # resume logic, but not those whose `_summary.txt` already exists —
+        # lives in `cli.summarize_batch()`. We call it rather than rewrite it
+        # here: duplicated, it would end up diverging from the CLI's.
         from cli import summarize_batch
 
-        with st.spinner("Résumés via l'API Claude…"):
+        with st.spinner("Summaries via the Claude API…"):
             summaries_failed = summarize_batch(
                 summary, diarize=options["diarize"], force=force
             )
@@ -340,10 +339,10 @@ def _run_folder(folder: str, options: dict, force: bool) -> dict:
 
 
 def _render_batch() -> None:
-    """Affiche le bilan d'un lot sous forme de compteurs et de tableau.
+    """Display a batch report as counters and a table.
 
-    `batch.report_summary()` produit le même bilan sur stdout : c'est le rendu
-    qui diffère, pas ce qui est rapporté.
+    `batch.report_summary()` produces the same report on stdout: what differs is
+    the rendering, not what is reported.
     """
     state = st.session_state.get("batch")
     if not state:
@@ -359,68 +358,69 @@ def _render_batch() -> None:
     )
 
     if not (success or skipped or failed):
-        st.info("Aucun fichier audio dans ce dossier.")
+        st.info("No audio file in this folder.")
         return
 
     columns = st.columns(3)
-    columns[0].metric("Succès", len(success))
-    columns[1].metric("Sautés", len(skipped))
-    columns[2].metric("Échecs", len(failed))
+    columns[0].metric("Succeeded", len(success))
+    columns[1].metric("Skipped", len(skipped))
+    columns[2].metric("Failed", len(failed))
 
     rows = [
-        {"Fichier": os.path.basename(path), "Statut": "✅ Succès", "Détail": ""}
+        {"File": os.path.basename(path), "Status": "✅ Succeeded", "Detail": ""}
         for path in success
     ]
     rows += [
         {
-            "Fichier": os.path.basename(path),
-            "Statut": "⏭️ Sauté",
-            "Détail": "déjà traité — cocher « Retraiter » pour le refaire",
+            "File": os.path.basename(path),
+            "Status": "⏭️ Skipped",
+            "Detail": "already done — tick “Reprocess” to redo it",
         }
         for path in skipped
     ]
     rows += [
         {
-            "Fichier": os.path.basename(path),
-            "Statut": "❌ Échec",
-            "Détail": short_reason(reason),
+            "File": os.path.basename(path),
+            "Status": "❌ Failed",
+            "Detail": short_reason(reason),
         }
         for path, reason in failed
     ]
     st.dataframe(rows, hide_index=True)
 
     if failed:
-        st.error(f"{len(failed)} fichier(s) en échec — le lot est allé au bout.")
+        st.error(f"{len(failed)} file(s) failed — the batch still ran to the end.")
     else:
-        st.success("Lot terminé sans échec.")
+        st.success("Batch finished with no failure.")
 
     summaries_failed = state["summaries_failed"]
     if summaries_failed:
-        st.error(f"{summaries_failed} résumé(s) en échec.")
+        st.error(f"{summaries_failed} summary/summaries failed.")
     elif summaries_failed == 0:
-        st.success("Résumés écrits dans output/, à côté des transcriptions.")
+        st.success("Summaries written to output/, next to the transcripts.")
 
 
 def _tab_batch() -> None:
     folder_input = st.text_input(
-        "Dossier à traiter",
+        "Folder to process",
         value="test-audio",
         key="batch_path",
-        help=f"Chemin relatif à {BROWSE_ROOT}, ou absolu sous cette racine.",
+        help=f"Path relative to {BROWSE_ROOT}, or absolute under that root.",
     )
     st.caption(
-        f"Racine autorisée : `{BROWSE_ROOT}` — un chemin qui en sort est refusé."
+        f"Allowed root: `{BROWSE_ROOT}` — a path that leaves it is refused."
     )
 
     options = _audio_options("batch")
     force = st.checkbox(
-        "Retraiter les fichiers déjà traités",
+        "Reprocess files already done",
         key="batch_force",
-        help="Sans cette case, un fichier dont la sortie existe déjà est sauté : "
-        "c'est ce qui permet de relancer un lot interrompu sans tout refaire.",
+        help="Without this box, a file whose output already exists is skipped: "
+        "that is what lets an interrupted batch restart without redoing "
+        "everything.",
     )
 
-    if st.button("Lancer le lot", key="batch_run", type="primary"):
+    if st.button("Run the batch", key="batch_run", type="primary"):
         try:
             folder = _resolve_browse_path(folder_input)
             st.session_state["batch"] = _run_folder(folder, options, force)
@@ -432,28 +432,29 @@ def _tab_batch() -> None:
 
 
 def _transcribe_recording(data: bytes, language: str | None) -> dict:
-    """Transcrit un enregistrement en mémoire, sans jamais le poser dans le dépôt.
+    """Transcribe a recording held in memory, never putting it in the repository.
 
-    L'audio dicté est du brouillon : il n'a pas à survivre à sa transcription, ni
-    à rejoindre `test-audio/` ou `output/` avec les fichiers qu'on garde. Il ne
-    touche donc le disque que dans le dossier temporaire du système, et le
-    `finally` l'y efface — succès, échec ou exception imprévue. Rien n'est laissé
-    au ramasse-miettes, qui ne promet ni le moment ni le fait de passer.
+    Dictated audio is a draft: it has no business surviving its transcription,
+    nor joining `test-audio/` or `output/` among the files we keep. It therefore
+    touches the disk only in the system temporary folder, and the `finally`
+    erases it there — success, failure or unforeseen exception. Nothing is left
+    to the garbage collector, which promises neither when it runs nor that it
+    will.
 
-    `transcribe_file()` demande un chemin parce que mlx-whisper décode le fichier
-    lui-même, en appelant ffmpeg : ce détour par le disque n'est pas évitable.
+    `transcribe_file()` asks for a path because mlx-whisper decodes the file
+    itself, by calling ffmpeg: that detour through the disk is unavoidable.
     """
     from transcribe import transcribe_file
 
     path = None
     try:
-        # `delete=False` parce que le fichier doit rester lisible après la
-        # fermeture du handle, le temps que ffmpeg le décode.
+        # `delete=False` because the file must stay readable after the handle is
+        # closed, long enough for ffmpeg to decode it.
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as handle:
             handle.write(data)
             path = handle.name
 
-        with st.spinner("Transcription de la dictée…"):
+        with st.spinner("Transcribing the dictation…"):
             text = transcribe_file(path, language=language)
     except (FileNotFoundError, ValueError) as error:
         return {"text": None, "error": str(error), "path": None}
@@ -465,38 +466,38 @@ def _transcribe_recording(data: bytes, language: str | None) -> dict:
 
 
 def _reset_dictation() -> None:
-    """Repart d'un widget vierge, sans garder l'enregistrement précédent.
+    """Start again from a blank widget, keeping none of the previous recording.
 
-    Passée en `on_click`, cette fonction s'exécute *avant* la réexécution du
-    script : les clés sont donc effacées pendant qu'aucun widget n'est
-    instancié, ce qu'une suppression en plein rendu ne permettrait pas.
+    Passed as `on_click`, this function runs *before* the script reruns: the
+    keys are therefore cleared while no widget is instantiated, which deleting
+    mid-render would not allow.
 
-    L'audio du tour précédent est retiré de `session_state` explicitement.
-    Incrémenter le compteur suffirait à afficher un widget neuf, mais les octets
-    de la dictée resteraient en mémoire jusqu'à la fin de la session — pour un
-    onglet dont l'engagement est de ne rien garder, ce serait un oubli.
+    The previous round's audio is removed from `session_state` explicitly.
+    Incrementing the counter would be enough to display a fresh widget, but the
+    dictation's bytes would stay in memory until the end of the session — for a
+    tab whose commitment is to keep nothing, that would be an oversight.
     """
-    tour = st.session_state.get("dictation_round", 0)
-    st.session_state.pop(f"dictation_input_{tour}", None)
-    st.session_state.pop(f"dictation_save_{tour}", None)
+    round_number = st.session_state.get("dictation_round", 0)
+    st.session_state.pop(f"dictation_input_{round_number}", None)
+    st.session_state.pop(f"dictation_save_{round_number}", None)
     st.session_state.pop("dictation", None)
-    st.session_state["dictation_round"] = tour + 1
+    st.session_state["dictation_round"] = round_number + 1
 
 
 def _tab_dictation() -> None:
-    """Dicter au micro et récupérer le texte, sans rien laisser derrière.
+    """Dictate into the microphone and get the text back, leaving nothing behind.
 
-    Pas de diarisation ici : on dicte seul. Pas de sauvegarde non plus par
-    défaut — l'usage visé est de copier le texte ailleurs dans la seconde, et
-    écrire un fichier à chaque essai encombrerait `output/` pour rien.
+    No diarization here: you dictate alone. No saving by default either — the
+    intended use is to paste the text somewhere else within seconds, and writing
+    a file on every attempt would clutter `output/` for nothing.
     """
     st.caption(
-        "Dictée mono-locuteur : l'audio n'est ni conservé ni enregistré dans le "
-        "dépôt, et le texte n'est sauvegardé que si tu le demandes."
+        "Single-speaker dictation: the audio is neither kept nor written into "
+        "the repository, and the text is only saved if you ask for it."
     )
 
     language_label = st.selectbox(
-        "Langue",
+        "Language",
         options=list(LANGUAGES),
         index=0,
         key="dictation_language",
@@ -504,25 +505,24 @@ def _tab_dictation() -> None:
     )
     language = LANGUAGES[language_label]
 
-    # La clé du widget porte un numéro de tour, parce que Streamlit n'offre aucun
-    # moyen de vider un `audio_input` en place : sans clé neuve, il garderait son
-    # enregistrement et l'onglet resterait bloqué sur la première dictée. Changer
-    # la clé lui fait construire un widget vierge — c'est le geste de
-    # « Nouvelle dictée ».
-    tour = st.session_state.setdefault("dictation_round", 0)
-    recording = st.audio_input("Enregistrement", key=f"dictation_input_{tour}")
+    # The widget key carries a round number, because Streamlit offers no way to
+    # empty an `audio_input` in place: without a fresh key it would keep its
+    # recording and the tab would stay stuck on the first dictation. Changing
+    # the key makes it build a blank widget — that is what "New dictation" does.
+    round_number = st.session_state.setdefault("dictation_round", 0)
+    recording = st.audio_input("Recording", key=f"dictation_input_{round_number}")
     if recording is None:
-        # Enregistrement supprimé par l'utilisateur : le texte qui l'accompagnait
-        # n'a plus de sujet.
+        # Recording deleted by the user: the text that went with it no longer
+        # has a subject.
         st.session_state.pop("dictation", None)
         return
 
     data = recording.getvalue()
 
-    # Streamlit réexécute tout le script au moindre clic — cocher la case de
-    # sauvegarde suffirait à relancer une transcription. On ne retranscrit donc
-    # que si l'audio ou la langue ont changé, la langue en faisant partie parce
-    # qu'en changer est une demande explicite de refaire la passe.
+    # Streamlit reruns the whole script on the slightest click — ticking the
+    # save box would be enough to start a transcription over. So we only
+    # re-transcribe if the audio or the language changed, the language counting
+    # because changing it is an explicit request to redo the pass.
     signature = (hashlib.sha1(data).hexdigest(), language)
     state = st.session_state.get("dictation")
     if not state or state["signature"] != signature:
@@ -533,53 +533,55 @@ def _tab_dictation() -> None:
     if state["error"]:
         st.error(state["error"])
     elif not state["text"]:
-        st.warning("Rien n'a été transcrit — enregistrement vide ou inaudible.")
+        st.warning("Nothing was transcribed — empty or inaudible recording.")
     else:
-        # `st.code` plutôt qu'un `text_area` : il porte un bouton « copier »
-        # natif, qui est le geste attendu ici.
+        # `st.code` rather than a `text_area`: it carries a native "copy"
+        # button, which is the gesture expected here.
         st.code(state["text"], language=None, wrap_lines=True)
 
         if st.checkbox(
-            "Sauvegarder quand même dans output/",
-            key=f"dictation_save_{tour}",
-            help="Décoché, rien n'est écrit : la dictée ne vit que dans cet écran.",
+            "Save to output/ anyway",
+            key=f"dictation_save_{round_number}",
+            help="Unticked, nothing is written: the dictation only lives on "
+            "this screen.",
         ):
             if not state["path"]:
                 from transcribe import save_transcript
 
-                # `save_transcript()` ne lit pas l'audio, il ne se sert de ce
-                # chemin que pour nommer sa sortie — c'est justement ce qui
-                # permet de le nommer sans reconstruire la convention ici. Le
-                # fichier temporaire, lui, n'existe plus depuis longtemps.
-                horodatage = datetime.now().strftime("%Y-%m-%d-%Hh%M")
+                # `save_transcript()` does not read the audio, it only uses this
+                # path to name its output — which is exactly what lets us name
+                # it without rebuilding the convention here. The temporary file
+                # itself stopped existing long ago.
+                timestamp = datetime.now().strftime("%Y-%m-%d-%Hh%M")
                 state["path"] = save_transcript(
-                    state["text"], f"dictee-{horodatage}.wav"
+                    state["text"], f"dictation-{timestamp}.wav"
                 )
-            st.success(f"Transcription enregistrée : {state['path']}")
+            st.success(f"Transcript saved: {state['path']}")
 
-    # Proposé dans les trois cas, y compris quand rien n'a été transcrit : une
-    # dictée inaudible est autant une impasse qu'une réussie, et c'est le seul
-    # moyen d'en relancer une.
-    st.button("Nouvelle dictée", key="dictation_reset", on_click=_reset_dictation)
+    # Offered in all three cases, including when nothing was transcribed: an
+    # inaudible dictation is as much a dead end as a successful one, and this is
+    # the only way to start another.
+    st.button("New dictation", key="dictation_reset", on_click=_reset_dictation)
 
 
 def _tab_youtube() -> None:
-    url = st.text_input("URL de la vidéo", key="youtube_url", placeholder="https://youtu.be/…")
+    url = st.text_input("Video URL", key="youtube_url", placeholder="https://youtu.be/…")
     options = _audio_options("youtube")
 
     if st.button(
-        "Transcrire", key="youtube_run", type="primary", disabled=not url.strip()
+        "Transcribe", key="youtube_run", type="primary", disabled=not url.strip()
     ):
         from youtube import transcribe_youtube
 
-        # Comme dans `cli.py` : les kwargs partent vers `diarize_file()` ou vers
-        # `transcribe_file()` selon le mode, ils ne sont pas interchangeables.
+        # As in `cli.py`: the kwargs go to `diarize_file()` or to
+        # `transcribe_file()` depending on the mode, they are not
+        # interchangeable.
         extra: dict = {"num_speakers": options["num_speakers"]} if options["diarize"] else {}
         if options["language"] and not options["diarize"]:
             extra["language"] = options["language"]
 
         try:
-            with st.spinner("Téléchargement de l'audio, puis transcription…"):
+            with st.spinner("Downloading the audio, then transcribing…"):
                 _, output_path = transcribe_youtube(
                     url.strip(), diarize=options["diarize"], **extra
                 )
@@ -594,30 +596,31 @@ def _tab_youtube() -> None:
 def main() -> None:
     st.set_page_config(page_title="Whisper Toolkit", page_icon="🎙️", layout="centered")
 
-    # Lancée autrement que depuis un shell interactif — app Automator, Finder,
-    # launchd —, l'interface hérite d'un PATH minimal sans `/opt/homebrew/bin`.
-    # ffmpeg est alors installé mais introuvable pour les sous-processus de
-    # mlx_whisper et whisperx, qui l'appellent par son nom nu. Réparé ici, au
-    # point d'entrée concerné : le CLI, lui, part toujours d'un shell.
+    # Launched anywhere other than from an interactive shell — Automator app,
+    # Finder, launchd — the interface inherits a minimal PATH without
+    # `/opt/homebrew/bin`. ffmpeg is then installed but unreachable for the
+    # subprocesses of mlx_whisper and whisperx, which call it by its bare name.
+    # Repaired here, at the entry point concerned: the CLI always starts from a
+    # shell.
     ffmpeg = ensure_on_path()
 
     st.title("🎙️ Whisper Toolkit")
     st.caption(
-        "Transcription audio locale — la même chose que `python src/cli.py`, "
-        "dans le navigateur. Les sorties sont écrites dans `output/`."
+        "Local audio transcription — the same thing as `python src/cli.py`, "
+        "in the browser. Outputs are written to `output/`."
     )
 
     if not ffmpeg:
-        # Sans ça, l'absence de ffmpeg ne se voit qu'au fond d'une trace, une
-        # fois le fichier déposé et le modèle chargé.
+        # Without this, a missing ffmpeg only shows up at the bottom of a
+        # traceback, once the file has been dropped and the model loaded.
         st.error(
-            "ffmpeg est introuvable — aucune transcription ne fonctionnera.\n\n"
-            "Installe-le (`brew install ffmpeg`), ou lance l'app depuis un "
-            "terminal où `ffmpeg` répond."
+            "ffmpeg cannot be found — no transcription will work.\n\n"
+            "Install it (`brew install ffmpeg`), or launch the app from a "
+            "terminal where `ffmpeg` answers."
         )
 
     single, batch, youtube, dictation = st.tabs(
-        ["Fichier unique", "Dossier (batch)", "YouTube", "Dictée rapide"]
+        ["Single file", "Folder (batch)", "YouTube", "Quick dictation"]
     )
 
     with single:
