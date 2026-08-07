@@ -57,8 +57,25 @@ Structure the summary as follows:
 Rephrase in your own words rather than copying whole sentences. If a passage is
 too degraded to be understood, say so instead of guessing.
 
-Answer in English, whatever the language of the transcript, and give the summary
-alone, with no preamble or comment about the task."""
+Give the summary alone, with no preamble or comment about the task."""
+
+# Nothing in the prompt above tells the model which language to answer in, and
+# that is deliberate — it is the one thing here that was established by
+# measurement rather than by reasoning.
+#
+# Left alone, the model mirrors the transcript's language: 4 runs out of 4 in
+# English on an English transcript, 3 out of 3 in French on a French one.
+#
+# Every attempt to *state* the rule made it worse. "Write the summary in the
+# same language as the transcript", inserted into this prompt, produced a French
+# summary of an English transcript twice in a row; a more emphatic wording
+# ("detect that language and match it exactly — never fall back to another
+# language") gave French once and German once. Naming the language as a
+# parameter seems to be what turns it into a free choice.
+#
+# So: do not add a language instruction here. If summaries ever come out in the
+# wrong language, measure before rewording — the intuitive fix is the one that
+# breaks it.
 
 
 def _resolve_api_key(api_key: str | None) -> str:
