@@ -52,8 +52,12 @@ def process_folder(
     diarize: bool = False,
     num_speakers: int | None = None,
     force: bool = False,
+    language: str | None = None,
 ) -> dict:
     """Traite tous les fichiers audio d'un dossier.
+
+    `language` ne concerne que la transcription : en diarisation, whisperx
+    détecte la langue de son côté, fichier par fichier.
 
     Reprise par défaut : un fichier dont la sortie existe déjà est sauté, ce
     qui permet de relancer un lot interrompu sans tout refaire. `force=True`
@@ -91,7 +95,7 @@ def process_folder(
                 segments = diarize_file(audio_path, num_speakers=num_speakers)
                 output_path = save_diarized_transcript(segments, audio_path)
             else:
-                text = transcribe_file(audio_path)
+                text = transcribe_file(audio_path, language=language)
                 output_path = save_transcript(text, audio_path)
         except Exception as error:
             # Volontairement large : le but du lot est d'arriver au bout, quelle
@@ -134,6 +138,12 @@ def main() -> None:
         help="Retraiter les fichiers dont la sortie existe déjà "
         "(par défaut : reprise, ces fichiers sont sautés)",
     )
+    parser.add_argument(
+        "--language",
+        default=None,
+        help="Forcer la langue (ex. fr, en), sans effet avec --diarize. "
+        "Par défaut : détection automatique",
+    )
     args = parser.parse_args()
 
     try:
@@ -142,6 +152,7 @@ def main() -> None:
             diarize=args.diarize,
             num_speakers=args.num_speakers,
             force=args.force,
+            language=args.language,
         )
     except NotADirectoryError as error:
         print(f"Erreur : {error}", file=sys.stderr)

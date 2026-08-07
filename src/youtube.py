@@ -193,11 +193,6 @@ def transcribe_youtube(url: str, diarize: bool = False, **kwargs) -> str:
         save_diarized_transcript(segments, audio_path)
         return "\n".join(f"[{s['speaker']}] {s['text']}" for s in segments)
 
-    # `transcribe_file()` force le français par défaut, ce qui convient aux
-    # enregistrements personnels mais pas à YouTube : sans ce `language=None`,
-    # une vidéo anglaise ressort en français inventé. `None` laisse Whisper
-    # détecter la langue ; `--language` reste là pour la forcer.
-    kwargs.setdefault("language", None)
     text = transcribe_file(audio_path, **kwargs)
     save_transcript(text, audio_path)
     return text

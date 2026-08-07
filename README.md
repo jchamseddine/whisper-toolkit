@@ -64,6 +64,26 @@ Les deux modules sont indépendants : ni import croisé, ni état partagé.
 `transcribe.py`, car l'alignement au mot exige les sorties internes de
 faster-whisper.
 
+### Langue : détectée, jamais forcée par défaut
+
+`transcribe_file()` prend `language: str | None = None` : Whisper détecte la
+langue. Les trois CLI exposent `--language` pour la forcer (`fr`, `en`, …), sans
+effet en diarisation où whisperx détecte de son côté, fichier par fichier.
+
+**Forcer une langue ne produit jamais d'erreur — ça produit une traduction.**
+Whisper à qui on impose une langue qui n'est pas celle de l'audio rend un texte
+dans la langue demandée, fluide et plausible, sans le moindre signal. Rien dans
+la sortie ne distingue une transcription d'une traduction inventée. C'est le
+défaut qu'a révélé la première vidéo YouTube anglaise, transcrite en français ;
+la fixture française avec `--language en` le reproduit à l'identique en sens
+inverse (voir Test 8).
+
+Un défaut codé en dur à `fr` n'était donc pas tenable pour un toolkit qui avale
+des URL YouTube et des dossiers hétérogènes. Et il ne coûte rien de l'enlever :
+**texte strictement identique** sur les 5 fixtures françaises, pour un surcoût
+**fixe** d'environ 0,3 s — une passe sur la première fenêtre, pas
+proportionnelle à la durée (0,5 % sur un fichier de 76 s).
+
 ### `batch.py` — orchestration, pas un troisième pipeline
 
 `batch.py` **ne contient aucune logique de traitement audio**. Il liste les
@@ -152,11 +172,8 @@ bord utile : un titre comme `../../etc/passwd` devient `etc_passwd`, donc aucune
 écriture hors de `test-audio/`. En contrepartie, **deux vidéos de même titre
 écrivent le même fichier** — c'est le prix d'un nom prévisible.
 
-**Langue : détection automatique, contrairement au reste du toolkit.**
-`transcribe.py` force `fr` par défaut, ce qui convient à des enregistrements
-personnels mais pas à YouTube. `youtube.py` passe donc `language=None` et laisse
-Whisper détecter ; `--language` force au besoin. Sans ça, une vidéo anglaise
-ressort en français inventé — voir le Test 7, où le cas s'est produit.
+**Langue : détection automatique**, comme partout ailleurs depuis que le défaut
+`fr` a été retiré de `transcribe_file()` — voir « Langue » ci-dessous.
 
 Les imports entre modules de `src/` sont **plats** (`from transcribe import …`),
 parce que ces fichiers s'exécutent comme des scripts : `python src/batch.py`
@@ -277,7 +294,7 @@ signifie ici : lancé pour de vrai et sortie vérifiée — pas seulement compil
 | Module / fonction | Écrit | Compile | Exécuté pour de vrai | Notes |
 |---|---|---|---|---|
 | `src/transcribe.py` | ✅ | ✅ | ✅ | validé de bout en bout le 2026-08-06 |
-| └ `transcribe_file()` | ✅ | ✅ | ✅ | `whisper-large-v3-mlx`, `language="fr"`, `.m4a` `.wav` `.opus` `.ogg` |
+| └ `transcribe_file()` | ✅ | ✅ | ✅ | `whisper-large-v3-mlx`, langue détectée, `.m4a` `.wav` `.opus` `.ogg` |
 | └ `save_transcript()` | ✅ | ✅ | ✅ | fichiers `output/*.txt` créés et relus |
 | └ CLI `argparse` | ✅ | ✅ | ✅ | `--help`, run nominal, codes de sortie |
 | └ erreur fichier absent | ✅ | ✅ | ✅ | message clair + `exit 1` |
@@ -594,12 +611,14 @@ ré-encodage (`-acodec copy`, vérifié dans la ligne de commande ffmpeg émise 
 yt-dlp), et 12× plus léger que le wav.
 
 > ⚠️ **Le premier run réel a produit une transcription entièrement fausse.**
-> L'audio est anglais, mais `transcribe.py` force `language="fr"` : Whisper a
-> rendu un texte français inventé, fluide et plausible, qui n'avait qu'un
-> rapport lointain avec l'original. Rien dans la sortie ne signalait le
-> problème. C'est ce qui a motivé le passage en détection automatique dans
-> `youtube.py`. Après correction, la transcription correspond aux sous-titres
+> L'audio est anglais, mais `transcribe.py` forçait alors `language="fr"` :
+> Whisper a rendu un texte français inventé, fluide et plausible, qui n'avait
+> qu'un rapport lointain avec l'original. Rien dans la sortie ne signalait le
+> problème. Après correction, la transcription correspond aux sous-titres
 > YouTube (123 mots contre 121 de référence).
+>
+> Le correctif appliqué ici était local à `youtube.py`. Le défaut valait aussi
+> pour `transcribe.py` et `batch.py` : il a été retiré à la racine au Test 8.
 
 **Résultats fonctionnels :**
 
@@ -646,6 +665,56 @@ Nommage vérifié unitairement — accents translittérés (`Café à la crème`
 `Cafe_a_la_creme`), titre japonais et titre de ponctuation pure repliés sur
 l'identifiant, troncature à 80 caractères, et `../../etc/passwd` neutralisé en
 `etc_passwd`.
+
+### Test 8 — détection de langue généralisée (2026-08-07)
+
+Le défaut `language="fr"` de `transcribe_file()` est retiré. Le défaut touchait
+aussi `batch.py`, qui appelait `transcribe_file()` sans argument : le Test 7
+n'avait mis en évidence qu'un symptôme sur trois.
+
+**Aucune dégradation** sur du contenu français, mesurée avant de changer le
+défaut. Pour chaque fixture, `language="fr"` puis `language=None` :
+
+| Fixture | forcé `fr` | auto | détecté | texte |
+|---|---|---|---|---|
+| `conversation_test.wav` | 0,85 s | 1,21 s | `fr` | identique |
+| `two_voices_generated.wav` | 1,40 s | 1,78 s | `fr` | identique |
+| `whatsapp_test.wav` | 0,79 s | 1,17 s | `fr` | identique |
+| `WhatsApp Audio ….opus` | 0,79 s | 1,17 s | `fr` | identique |
+| `test_vorbis.ogg` | 0,79 s | 1,14 s | `fr` | identique |
+
+Le texte est **strictement identique** dans les cinq cas — la détection ne change
+pas le résultat, elle évite seulement de le corrompre quand la langue diffère.
+
+Le surcoût est **fixe, pas proportionnel** : constant autour de 0,35 s sur ces
+fixtures courtes, et 0,32 s sur un fichier français de 76 s (61,39 s → 61,71 s,
+soit 0,5 %). La détection ne tourne qu'une fois, sur la première fenêtre.
+
+> ⚠️ **Forcer la langue produit une traduction, pas une erreur.** La fixture
+> française passée en `--language en` ressort en anglais parfaitement fluide :
+> « Hello, did you have time to look at the supplier's file this morning? » là
+> où l'audio dit « Bonjour, est-ce que tu as eu le temps de regarder le dossier
+> fournisseur ce matin ? ». Aucun avertissement, aucun code d'erreur, une sortie
+> plausible. C'est le même défaut qu'au Test 7, reproduit en sens inverse — et
+> la raison pour laquelle un défaut de langue codé en dur n'a pas sa place ici.
+
+**Vérifications fonctionnelles :**
+
+| Scénario | Obtenu |
+|---|---|
+| `transcribe.py` sans `--language` sur fixture fr | ✅ français correct |
+| `transcribe.py --language en` sur la même | ✅ traduit — défaut reproduit |
+| `batch.py --force` sur `test-audio/` **mixte** | ✅ 7/7, chacun dans sa langue |
+| `batch.py --language en` | ✅ forçage propagé jusqu'à `transcribe_file()` |
+| `batch.py --force` ensuite | ✅ retour au français |
+
+Le lot mixte est le test qui compte : `test-audio/` contient 6 fichiers français
+et la vidéo NASA anglaise du Test 7. Un seul passage les transcrit chacun dans
+sa langue. Avec l'ancien défaut, la vidéo anglaise serait ressortie en français
+inventé, sans que le résumé du lot signale quoi que ce soit.
+
+`youtube.py` perd du même coup son `kwargs.setdefault("language", None)`, qui
+n'était qu'un contournement local du défaut désormais supprimé.
 
 ### Environnement de test (vérifié le 2026-08-06)
 
@@ -708,7 +777,12 @@ Mac M5 (`Darwin arm64`) — tout est en place :
   s'écrasent. Avec la reprise de `batch.py`, la seconde serait même sautée.
 - `youtube.py` : testé sur des vidéos d'une minute. Rien n'est connu du
   comportement sur une vidéo d'une heure — durée, mémoire, taille du `.opus`.
-- Autres langues et autres modèles que les valeurs par défaut.
+- Détection de langue : vérifiée sur du français (5 fixtures) et de l'anglais
+  (vidéo NASA). Aucune autre langue testée, et aucun cas de bascule de langue
+  *à l'intérieur* d'un même fichier — Whisper ne détecte que sur la première
+  fenêtre, un enregistrement bilingue serait donc transcrit dans une seule
+  langue.
+- Autres modèles que `whisper-large-v3-mlx`.
 - Tests automatisés dans `tests/` : aucun pour l'instant, tout a été vérifié
   à la main.
 

@@ -5,7 +5,6 @@ import os
 import sys
 
 DEFAULT_MODEL = "mlx-community/whisper-large-v3-mlx"
-DEFAULT_LANGUAGE = "fr"
 # mlx_whisper décode via ffmpeg (`-ac 1 -ar 16000`), donc tout format lu par
 # ffmpeg convient : la conversion en 16 kHz mono est déjà faite en interne.
 SUPPORTED_EXTENSIONS = (".mp3", ".wav", ".m4a", ".mp4", ".opus", ".ogg")
@@ -14,9 +13,16 @@ SUPPORTED_EXTENSIONS = (".mp3", ".wav", ".m4a", ".mp4", ".opus", ".ogg")
 def transcribe_file(
     audio_path: str,
     model: str = DEFAULT_MODEL,
-    language: str = DEFAULT_LANGUAGE,
+    language: str | None = None,
 ) -> str:
-    """Transcrit un fichier audio et retourne le texte."""
+    """Transcrit un fichier audio et retourne le texte.
+
+    `language=None` laisse Whisper détecter la langue. Forcer une langue sur un
+    fichier d'une autre langue ne produit pas une erreur mais une traduction
+    inventée, fluide et plausible — un défaut invisible dans la sortie. Le
+    surcoût de la détection est fixe (~0,3 s, une passe sur la première
+    fenêtre), pas proportionnel à la durée.
+    """
     if not os.path.isfile(audio_path):
         raise FileNotFoundError(f"Fichier introuvable : {audio_path}")
 
@@ -69,7 +75,9 @@ def main() -> None:
         "--model", default=DEFAULT_MODEL, help=f"Modèle Whisper (défaut : {DEFAULT_MODEL})"
     )
     parser.add_argument(
-        "--language", default=DEFAULT_LANGUAGE, help=f"Langue (défaut : {DEFAULT_LANGUAGE})"
+        "--language",
+        default=None,
+        help="Forcer la langue (ex. fr, en). Par défaut : détection automatique",
     )
     args = parser.parse_args()
 
