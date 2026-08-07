@@ -27,6 +27,7 @@ whisper-toolkit/
 ├── requirements.txt
 ├── .gitignore
 ├── .env               # HF_TOKEN pour la diarisation (non versionné)
+├── .nltk_data/        # cache NLTK local au projet (non versionné, régénérable)
 ├── venv/              # environnement virtuel (non versionné)
 ├── test-audio/        # échantillons de test (ignoré, sauf la fixture synthétique)
 ├── output/            # transcriptions produites (non versionné)
@@ -128,6 +129,33 @@ HF_TOKEN=hf_xxxxxxxxxxxxxxxx
 
 Le token peut aussi être passé directement en argument à `diarize_file()`.
 `transcribe.py` n'en a pas besoin.
+
+### Cache NLTK — `.nltk_data/`
+
+Pendant l'alignement, whisperx télécharge le tokenizer de phrases `punkt_tab`
+(~4 Mo) via NLTK. Par défaut NLTK l'écrit dans `~/nltk_data`, à la racine du
+compte utilisateur. `diarize.py` redirige ce cache vers `.nltk_data/` à la
+racine du repo, pour que tout ce qui concerne le projet reste dans le projet.
+
+`.nltk_data/` est un **cache local, régénérable, jamais committé** : il est
+dans `.gitignore`, ne contient que des données tierces téléchargées, et se
+reconstruit tout seul au prochain lancement. Il peut être supprimé à tout
+moment — le seul coût est un re-téléchargement.
+
+La redirection se fait en tête de `diarize.py`, et repose sur deux détails de
+NLTK qu'il ne faut pas « simplifier » :
+
+- **`os.environ["NLTK_DATA"]` doit être posé avant `import nltk`.** À l'import,
+  `nltk.downloader` instancie un singleton dont le dossier de destination est
+  figé une fois pour toutes. Un `nltk.data.path.insert()` après coup corrige
+  la *lecture* du cache, mais plus son *écriture* : le téléchargement repart
+  dans `~/nltk_data`.
+- **Le dossier doit exister avant l'import.** NLTK ne retient un chemin que
+  s'il existe et est writable. Comme `.nltk_data/` est gitignoré, il est absent
+  d'un clone frais : d'où le `os.makedirs(..., exist_ok=True)`.
+
+`batch.py` hérite de la configuration en important `diarize` ;
+`transcribe.py` (mlx-whisper) ne touche ni à whisperx ni à NLTK.
 
 ## État d'installation par machine
 

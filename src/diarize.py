@@ -9,7 +9,30 @@ import argparse
 import os
 import sys
 
-from dotenv import load_dotenv
+# whisperx appelle `nltk.download('punkt_tab')` pendant l'alignement. Par défaut
+# NLTK écrit dans ~/nltk_data ; on veut le cache dans le repo.
+#
+# `NLTK_DATA` doit être posé AVANT `import nltk`, et pas seulement complété par
+# un `nltk.data.path.insert()` après coup : à l'import, nltk.downloader
+# construit un singleton `_downloader` dont le dossier de destination est figé
+# une fois pour toutes (`Downloader.__init__` → `default_download_dir()`).
+# Modifier `nltk.data.path` ensuite corrige la *lecture*, mais plus l'écriture.
+#
+# Le makedirs n'est pas optionnel non plus : NLTK ne retient un chemin que s'il
+# existe et est writable, or `.nltk_data/` est gitignoré donc absent d'un clone.
+_NLTK_DATA_DIR = os.path.abspath(
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".nltk_data")
+)
+os.makedirs(_NLTK_DATA_DIR, exist_ok=True)
+os.environ["NLTK_DATA"] = _NLTK_DATA_DIR
+
+import nltk  # noqa: E402  -- doit suivre NLTK_DATA
+from dotenv import load_dotenv  # noqa: E402
+
+# Filet de sécurité : si un autre module a déjà importé nltk, la variable
+# d'environnement est arrivée trop tard pour peupler `nltk.data.path`.
+if _NLTK_DATA_DIR not in nltk.data.path:
+    nltk.data.path.insert(0, _NLTK_DATA_DIR)
 
 DEFAULT_MODEL = "large-v3"
 DEFAULT_DIARIZATION_MODEL = "pyannote/speaker-diarization-community-1"

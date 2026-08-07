@@ -57,6 +57,10 @@ transcripts/
 # Modèles téléchargés
 models/
 
+# Cache NLTK local au projet (punkt_tab, téléchargé à la volée par whisperx).
+# Données tierces régénérables, pas du code.
+.nltk_data/
+
 # OS / éditeurs
 .DS_Store
 Thumbs.db
