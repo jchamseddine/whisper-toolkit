@@ -116,6 +116,26 @@ def process_folder(
     return summary
 
 
+def report_summary(summary: dict) -> None:
+    """Affiche le bilan d'un lot sur stdout.
+
+    Séparé de `main()` parce que `cli.py` produit le même bilan : le format
+    d'affichage du lot n'a qu'une définition. Ne décide pas du code de sortie —
+    c'est à l'appelant de le faire à partir de `summary["failed"]`.
+    """
+    print(f"Succès : {len(summary['success'])}")
+
+    if summary["skipped"]:
+        print(f"Sautés : {len(summary['skipped'])} (déjà traités — --force pour refaire)")
+        for path in summary["skipped"]:
+            print(f"  - {os.path.basename(path)}")
+
+    if summary["failed"]:
+        print(f"Échecs : {len(summary['failed'])}")
+        for path, reason in summary["failed"]:
+            print(f"  - {os.path.basename(path)} : {_short_reason(reason)}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Transcrit tous les fichiers audio d'un dossier."
@@ -158,17 +178,9 @@ def main() -> None:
         print(f"Erreur : {error}", file=sys.stderr)
         sys.exit(1)
 
-    print(f"Succès : {len(summary['success'])}")
-
-    if summary["skipped"]:
-        print(f"Sautés : {len(summary['skipped'])} (déjà traités — --force pour refaire)")
-        for path in summary["skipped"]:
-            print(f"  - {os.path.basename(path)}")
+    report_summary(summary)
 
     if summary["failed"]:
-        print(f"Échecs : {len(summary['failed'])}")
-        for path, reason in summary["failed"]:
-            print(f"  - {os.path.basename(path)} : {_short_reason(reason)}")
         sys.exit(1)
 
 

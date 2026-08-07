@@ -180,11 +180,21 @@ def summarize_text(
     return summary
 
 
+def summary_path(transcript_path: str, output_dir: str = "output") -> str:
+    """Chemin de sortie attendu pour `transcript_path`, sans rien écrire.
+
+    Pendant de `transcribe.transcript_path()` : c'est ce qui permet à `cli.py`
+    de savoir qu'un résumé existe déjà, et donc de ne pas repayer un appel à
+    l'API pour le refaire.
+    """
+    stem = os.path.splitext(os.path.basename(transcript_path))[0]
+    return os.path.join(output_dir, f"{stem}_summary.txt")
+
+
 def save_summary(summary: str, audio_path: str, output_dir: str = "output") -> str:
     """Écrit le résumé dans output_dir et retourne le chemin du fichier."""
     os.makedirs(output_dir, exist_ok=True)
-    stem = os.path.splitext(os.path.basename(audio_path))[0]
-    output_path = os.path.join(output_dir, f"{stem}_summary.txt")
+    output_path = summary_path(audio_path, output_dir)
 
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(summary)

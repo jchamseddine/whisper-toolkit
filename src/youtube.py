@@ -179,23 +179,25 @@ def download_audio(url: str, output_dir: str = DEFAULT_AUDIO_DIR) -> str:
     return audio_path
 
 
-def transcribe_youtube(url: str, diarize: bool = False, **kwargs) -> str:
+def transcribe_youtube(url: str, diarize: bool = False, **kwargs) -> tuple[str, str]:
     """Télécharge une vidéo puis la transcrit, avec ou sans locuteurs.
 
-    Retourne le texte, et l'enregistre dans `output/` comme les autres entrées
-    du toolkit. Les `kwargs` sont transmis à `diarize_file()` ou à
+    Retourne `(texte, chemin de sortie)`. Le nom du fichier produit dépend du
+    titre de la vidéo, connu seulement ici : sans le retourner, un appelant qui
+    veut enchaîner sur la transcription — `cli.py --summarize` — ne peut pas la
+    retrouver. Les `kwargs` sont transmis à `diarize_file()` ou à
     `transcribe_file()` selon le mode — ils ne sont pas interchangeables.
     """
     audio_path = download_audio(url)
 
     if diarize:
         segments = diarize_file(audio_path, **kwargs)
-        save_diarized_transcript(segments, audio_path)
-        return "\n".join(f"[{s['speaker']}] {s['text']}" for s in segments)
+        output_path = save_diarized_transcript(segments, audio_path)
+        text = "\n".join(f"[{s['speaker']}] {s['text']}" for s in segments)
+        return text, output_path
 
     text = transcribe_file(audio_path, **kwargs)
-    save_transcript(text, audio_path)
-    return text
+    return text, save_transcript(text, audio_path)
 
 
 def main() -> None:
@@ -226,12 +228,13 @@ def main() -> None:
         extra["language"] = args.language
 
     try:
-        text = transcribe_youtube(args.url, diarize=args.diarize, **extra)
+        text, output_path = transcribe_youtube(args.url, diarize=args.diarize, **extra)
     except (FileNotFoundError, ValueError) as error:
         print(f"Erreur : {error}", file=sys.stderr)
         sys.exit(1)
 
     print(text)
+    print(f"\nTranscription enregistrée : {output_path}", file=sys.stderr)
 
 
 if __name__ == "__main__":

@@ -4,11 +4,87 @@ CLI Python de transcription audio **locale**, basé sur Whisper.
 
 > **Statut : en cours de développement.** Transcription locale, diarisation,
 > traitement par lot, transcription depuis une URL YouTube et résumé via l'API
-> Claude sont implémentés et exécutés pour de vrai. Deux réserves : la
-> séparation des locuteurs n'a été testée que sur des voix de synthèse, sans
-> chevauchement de parole, et le résumé n'a été mesuré que sur une transcription
-> écrite à la main, pas sur une vraie sortie Whisper longue. La surveillance de
-> dossier n'est pas commencée. Détail dans [Testing Status](#testing-status).
+> Claude sont implémentés et exécutés pour de vrai, derrière un CLI unifié.
+> Deux réserves : la séparation des locuteurs n'a été testée que sur des voix de
+> synthèse, sans chevauchement de parole, et le résumé n'a été mesuré que sur
+> une transcription écrite à la main, pas sur une vraie sortie Whisper longue.
+> La surveillance de dossier n'est pas commencée.
+> Détail dans [Testing Status](#testing-status).
+
+## Usage
+
+Tout passe par une seule commande, avec une sous-commande par mode d'entrée.
+
+```bash
+source venv/bin/activate
+
+python src/cli.py transcribe cours.m4a              # un fichier
+python src/cli.py batch mes-cours/                  # un dossier entier
+python src/cli.py youtube 'https://youtu.be/...'    # une URL YouTube
+python src/cli.py summarize output/cours.txt        # résumer un texte déjà produit
+```
+
+Les trois premières écrivent dans `output/`. `python src/cli.py --help`, et
+`python src/cli.py <sous-commande> --help`, listent le reste.
+
+### Options
+
+| Option | `transcribe` | `batch` | `youtube` | Effet |
+|---|:---:|:---:|:---:|---|
+| `--diarize` | ✅ | ✅ | ✅ | identifier les locuteurs (whisperx) au lieu d'une simple transcription |
+| `--num-speakers N` | ✅ | ✅ | ✅ | nombre exact de locuteurs, si connu (avec `--diarize`) |
+| `--language fr` | ✅ | ✅ | ✅ | forcer la langue — par défaut elle est **détectée**, et la forcer à tort produit une traduction silencieuse (voir [Langue](#langue--détectée-jamais-forcée-par-défaut)) |
+| `--summarize` | ✅ | ✅ | ✅ | enchaîner un résumé via l'API Claude — **seule option payante** |
+| `--summary-model`, `--summary-style` | ✅ | ✅ | ✅ | modèle et style du résumé enchaîné |
+| `--force` | — | ✅ | — | retraiter ce qui existe déjà, résumés compris |
+
+La sous-commande `summarize` prend `--model` et `--style` (mêmes valeurs, sans
+le préfixe : elle ne fait que ça).
+
+```bash
+# transcription + locuteurs + résumé, en une seule commande
+python src/cli.py transcribe reunion.wav --diarize --num-speakers 3 --summarize
+
+# un dossier entier, résumé de chaque fichier, en reprenant là où on s'était arrêté
+python src/cli.py batch mes-cours/ --summarize
+
+# résumé sur mesure d'une transcription déjà produite
+python src/cli.py summarize output/cours.txt --style "en trois puces"
+```
+
+Code de sortie `0` si tout s'est bien passé, `1` sinon — y compris quand un seul
+fichier d'un lot a échoué.
+
+### Pourquoi `python src/cli.py` et pas une commande `whisper-toolkit` installée
+
+Le CLI aurait pu être exposé comme un exécutable (`pip install -e .` plus un
+`entry_point` dans un `pyproject.toml`), pour taper `whisper-toolkit transcribe
+cours.m4a`. Ce n'est **pas** fait, pour trois raisons :
+
+- **Les modules de `src/` s'importent à plat** (`from transcribe import …`), ce
+  qui fonctionne parce que `python src/cli.py` place `src/` en tête de
+  `sys.path`. Un paquet installable demanderait soit de convertir les six
+  fichiers en imports de paquet — un refactor de code qui marche, pour zéro gain
+  fonctionnel — soit de publier `transcribe`, `batch`, `summarize` et `youtube`
+  comme modules **de premier niveau** dans le `site-packages` du venv. Ces noms
+  sont trop génériques pour ne pas entrer en collision un jour.
+- **Le gain se limite à quelques caractères.** Le venv doit être activé dans les
+  deux cas : une commande installée ne dispense pas de `source venv/bin/activate`.
+- **`output/` est relatif au répertoire courant.** Une commande installée invite
+  à lancer le toolkit depuis n'importe où, et donc à éparpiller les
+  transcriptions dans autant de dossiers `output/` que de répertoires de
+  travail. Aujourd'hui la convention est simple : on lance depuis la racine du
+  dépôt.
+
+Pour raccourcir la ligne sans rien installer, un alias suffit :
+
+```bash
+alias wt="$PWD/venv/bin/python $PWD/src/cli.py"
+```
+
+La question se reposera si le toolkit doit être distribué à quelqu'un d'autre.
+Ce sera alors un vrai paquet (`whisper_toolkit/` avec des imports de paquet),
+pas un `entry_point` posé par-dessus la structure actuelle.
 
 ## Fonctionnalités prévues
 
@@ -34,6 +110,7 @@ whisper-toolkit/
 ├── test-audio/        # échantillons de test (ignoré, sauf la fixture synthétique)
 ├── output/            # transcriptions produites (non versionné)
 ├── src/
+│   ├── cli.py         # CLI unifié — point d'entrée, orchestration seule
 │   ├── transcribe.py  # transcription simple (mlx-whisper)
 │   ├── diarize.py     # transcription + locuteurs (whisperx)
 │   ├── batch.py       # traitement d'un dossier entier
@@ -86,6 +163,60 @@ des URL YouTube et des dossiers hétérogènes. Et il ne coûte rien de l'enleve
 **texte strictement identique** sur les 5 fixtures françaises, pour un surcoût
 **fixe** d'environ 0,3 s — une passe sur la première fenêtre, pas
 proportionnelle à la durée (0,5 % sur un fichier de 76 s).
+
+### `cli.py` — une commande, quatre sous-commandes
+
+`cli.py` est une couche d'orchestration au même titre que `batch.py` : il ne
+contient **aucune** logique de transcription, de diarisation, de téléchargement
+ni de résumé. Chaque sous-commande appelle les fonctions des modules qui la
+portent, puis affiche ce qu'elles ont écrit.
+
+```
+transcribe FICHIER ──> transcribe_file() | diarize_file()  ──> output/{nom}[_diarized].txt ─┐
+batch DOSSIER      ──> process_folder()      (délègue fichier par fichier)                  ├─> --summarize
+youtube URL        ──> transcribe_youtube()  (yt-dlp puis délégation)                       ─┘      │
+                                                                                                   ▼
+summarize FICHIER.txt ─────────────────────> summarize_text()  ──────────────> output/{nom}_summary.txt
+```
+
+**`argparse` avec des sous-parseurs, pas de nouvelle dépendance.** Quatre
+sous-commandes et une dizaine d'options : `click` ou `typer` n'apporteraient
+ici qu'un peu de sucre syntaxique, contre une dépendance de plus à installer et
+à suivre. Les options communes aux trois entrées audio sont d'ailleurs
+déclarées **une seule fois**, dans un parseur parent (`parents=[audio]`) — il
+n'y a donc pas non plus la duplication à laquelle `click` remédierait.
+
+**Les modules frères sont importés dans les fonctions, pas en tête de fichier.**
+Importer `youtube` tire yt-dlp, et `diarize`/`batch` tirent nltk : **0,72 s
+payées à chaque lancement**, y compris pour un `--help` ou un résumé qui n'en
+ont que faire. Avec les imports paresseux, `--help` répond en **0,03 s**. C'est
+le même raisonnement que pour `mlx_whisper`, `whisperx` et `anthropic` ailleurs
+dans le toolkit, appliqué un cran plus haut.
+
+**`--summarize` relit le fichier écrit plutôt que le texte en mémoire.** Après
+avoir délégué la transcription, `cli.py` relit la sortie et la passe à
+`summarize_text()` — exactement le chemin de la sous-commande `summarize`. Le
+format `[SPEAKER_XX] texte` garde ainsi une définition unique, dans
+`diarize.py`, au lieu d'être reconstruit ici pour l'affichage.
+
+**En lot, le résumé suit la même reprise que la transcription.** `batch
+--summarize` résume les fichiers traités **et** ceux sautés parce que leur
+transcription existait déjà, mais saute ceux dont le `_summary.txt` est déjà
+présent — sauf `--force`. Sans la première règle, reprendre un lot interrompu ne
+résumerait que la partie restante ; sans la seconde, chaque relance repaierait
+tous les appels à l'API.
+
+**Ce que le CLI unifié n'expose pas.** `--model` (modèle Whisper) et
+`--diarization-model` restent accessibles via `python src/transcribe.py` et
+`python src/diarize.py`. Ce sont des réglages rares : les exposer sur chaque
+sous-commande aurait allongé l'aide sans servir l'usage courant.
+
+**Trois ajustements dans les modules existants**, pour que `cli.py` n'ait rien à
+dupliquer : `summarize.summary_path()` (pendant de `transcript_path()`, sans
+lequel on ne peut pas savoir qu'un résumé existe déjà), `batch.report_summary()`
+(le bilan du lot sort de `main()` pour être appelable des deux côtés), et
+`transcribe_youtube()` qui retourne désormais `(texte, chemin de sortie)` — le
+nom du fichier produit dépend du titre de la vidéo, connu seulement là.
 
 ### `batch.py` — orchestration, pas un troisième pipeline
 
@@ -387,10 +518,21 @@ signifie ici : lancé pour de vrai et sortie vérifiée — pas seulement compil
 | └ `--num-speakers` propagé | ✅ | ✅ | ✅ | borne `[2, 2]` bien reçue par pyannote |
 | └ `_short_reason()` | ✅ | ✅ | ✅ | bannière ffmpeg de 13 lignes réduite à 1 |
 | └ dossier introuvable / vide | ✅ | ✅ | ✅ | `exit 1` / `exit 0` avec message |
+| `src/youtube.py` | ✅ | ✅ | ✅ | validé le 2026-08-07 (Test 7) |
+| └ `transcribe_youtube()` | ✅ | ✅ | ✅ | retourne `(texte, chemin)` depuis l'étape 8 |
+| `src/summarize.py` | ✅ | ✅ | ✅ | `claude-sonnet-5`, 26/26 faits capturés sur 2 411 mots, ≈ 0,039 $ (Test 9) |
+| └ `summary_path()` | ✅ | ✅ | ✅ | ajouté à l'étape 8, exercé par la reprise de `batch --summarize` |
+| `src/cli.py` | ✅ | ✅ | ✅ | validé le 2026-08-07 (Test 10) |
+| └ `transcribe` | ✅ | ✅ | ✅ | seul, et avec `--diarize --num-speakers 2 --summarize` |
+| └ `batch` | ✅ | ✅ | ✅ | 2 succès / 1 échec isolé, reprise à deux niveaux |
+| └ `youtube` | ✅ | ✅ | ✅ | vidéo NASA, avec `--summarize` |
+| └ `summarize` | ✅ | ✅ | ✅ | `--model claude-haiku-4-5` et `--style` vérifiés |
+| └ `--summarize` enchaîné | ✅ | ✅ | ✅ | sur les trois entrées audio |
+| └ avertissements d'options | ✅ | ✅ | ✅ | `--num-speakers` sans `--diarize`, `--language` avec |
+| └ codes de sortie | ✅ | ✅ | ✅ | `0` / `1`, échec partiel de lot compris |
+| └ imports paresseux | ✅ | ✅ | ✅ | `--help` en 0,03 s contre 0,72 s en imports directs |
 | `src/__init__.py` | ✅ (vide) | ✅ | n/a | simple marqueur de package |
-| YouTube (`yt-dlp`) | ❌ | — | — | dépendance installée, code non écrit |
 | Surveillance de dossier | ❌ | — | — | volontairement non implémentée |
-| Résumé (API Claude) | ✅ | ✅ | ✅ | `claude-sonnet-5`, 26/26 faits capturés sur 2 411 mots, ≈ 0,039 $ (Test 9) |
 | `tests/` | ❌ vide | — | — | aucun test automatisé |
 
 ### Transcriptions réelles exécutées (2026-08-06)
@@ -854,6 +996,63 @@ un seul style (`concis`). La variation entre runs est réelle — elle s'est vue
 sur deux appels. Et le texte étant écrit par nos soins, la couverture mesurée
 est un plafond optimiste par rapport à une vraie transcription Whisper.
 
+### Test 10 — `cli.py`, les quatre sous-commandes en conditions réelles (2026-08-07)
+
+Chaque sous-commande a été lancée pour de vrai, pas seulement en `--help`.
+
+| Commande | Résultat | Durée |
+|---|---|---|
+| `transcribe test-audio/two_voices_generated.wav` | texte français correct, `output/two_voices_generated.txt` | 4,0 s |
+| `transcribe … --diarize --num-speakers 2 --summarize` | 2 locuteurs séparés **puis** résumé enchaîné | 23,4 s |
+| `batch <dossier> --summarize` | 2 transcriptions + 2 résumés, 1 échec isolé, `exit 1` | — |
+| `youtube 'https://youtu.be/V0oo_Nybo6w' --summarize` | transcription anglaise + résumé français | 19,8 s |
+| `summarize output/…NASA….txt --style "en trois puces exactement"` | exactement 3 puces | — |
+
+**L'enchaînement `--diarize --summarize` est le cas qui compte** : il traverse
+les deux modules les plus éloignés du toolkit en une commande. Sortie obtenue
+sur la fixture 2 voix — `[SPEAKER_01]` puis `[SPEAKER_00]`, conforme au Test 4 —
+et le résumé écrit dans `output/two_voices_generated_diarized_summary.txt`, pas
+dans `…_summary.txt` : c'est bien la sortie **diarisée** qui a été résumée, et
+le nom du fichier le dit.
+
+**Reprise du lot, vérifiée sur trois lancements successifs.** Dossier de test
+monté hors dépôt : deux fichiers audio valides, un `.wav` corrompu, un `.txt`.
+
+| # | État de départ | Traités | Sautés | Résumés | Code |
+|---|---|---|---|---|---|
+| 1 | rien dans `output/` | 2 | 0 | 2 produits | 1 *(fichier corrompu)* |
+| 2 | tout est là | 0 | 2 | **2 sautés — aucun appel à l'API** | 1 *(idem)* |
+| 3 | un `_summary.txt` supprimé, fichier corrompu retiré | 0 | 2 | 1 seul régénéré | 0 |
+
+Le run 2 dure **2,0 s** et ne coûte rien : c'est ce que vérifie ce test. Le
+run 3 vérifie l'autre moitié de la règle — une transcription sautée reste
+candidate au résumé, sinon reprendre un lot interrompu ne résumerait que la
+partie restante.
+
+**Erreurs et avertissements**, tous vérifiés en vrai :
+
+| Cas | Obtenu |
+|---|---|
+| `transcribe` fichier absent / extension non gérée | message clair, `exit 1` |
+| `batch` dossier introuvable | « Dossier introuvable : … », `exit 1` |
+| `summarize` fichier absent | « Fichier introuvable : … », `exit 1` |
+| `--num-speakers` sans `--diarize` | « Attention : --num-speakers est ignoré sans --diarize. » |
+| `--language` avec `--diarize` | avertissement équivalent (whisperx détecte lui-même) |
+
+**Les modules restent utilisables seuls.** `batch.py`, `youtube.py` et
+`summarize.py` ont été relancés directement après refactor : bilan de lot
+identique, `youtube.py` affiche désormais aussi le chemin de sortie, aide de
+`summarize.py` inchangée.
+
+> ⚠️ **Observation hors périmètre du CLI, mais à noter.** Le test
+> `--model claude-haiku-4-5` a bien routé le modèle, mais sur une transcription
+> d'**une seule phrase** (75 caractères) Haiku a répondu comme si on
+> s'adressait à lui — « je n'ai pas accès à des dossiers externes… » — au lieu
+> de résumer. Sonnet, sur un texte aussi court, dit correctement que le texte
+> est trop court pour être résumé. Le prompt système de `summarize.py` n'a été
+> calibré que sur Sonnet ; `--summary-model` reste donc à utiliser en
+> connaissance de cause.
+
 ### Environnement de test (vérifié le 2026-08-06)
 
 Mac M5 (`Darwin arm64`) — tout est en place :
@@ -932,6 +1131,20 @@ Mac M5 (`Darwin arm64`) — tout est en place :
   a pas de chunking. Le plafond `MAX_TOKENS = 4096` en sortie n'a jamais été
   approché (1 237 tokens sur le run le plus gros) et la troncature n'a été
   vérifiée qu'en simulant `stop_reason: max_tokens`.
+- `cli.py` : `--summary-model` et `--summary-style` n'ont été exercés que via la
+  sous-commande `summarize`, jamais enchaînés derrière `--summarize` sur une
+  entrée audio. Le câblage est le même parseur parent pour les trois entrées,
+  mais ce n'est pas une vérification.
+- `cli.py` : un lot où **le résumé** échoue (clé absente, quota dépassé) n'a pas
+  été provoqué. Le code compte les échecs et sort en 1 sans interrompre la
+  série, comme pour les transcriptions ; ce chemin n'a pas été exécuté.
+- `cli.py` : la reprise des résumés se fie, comme celle des transcriptions, à la
+  **présence** du `_summary.txt`, jamais à son contenu.
+- `summarize.py` : le prompt système n'est calibré que pour `claude-sonnet-5`.
+  Sur `claude-haiku-4-5` et une entrée d'une phrase, le modèle répond à côté
+  (Test 10). Aucun autre modèle n'a été essayé.
+- Le toolkit n'est pas installable (`pip install -e .`) : voir
+  [Pourquoi `python src/cli.py`](#pourquoi-python-srcclipy-et-pas-une-commande-whisper-toolkit-installée).
 - Autres modèles que `whisper-large-v3-mlx`.
 - Tests automatisés dans `tests/` : aucun pour l'instant, tout a été vérifié
   à la main.
