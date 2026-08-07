@@ -2,10 +2,11 @@
 
 CLI Python de transcription audio **locale**, basé sur Whisper.
 
-> **Statut : en cours de développement.** Transcription locale et diarisation
-> sont implémentées et validées, séparation de deux locuteurs comprise — mais
-> sur des voix de synthèse, sans chevauchement de parole. Batch, YouTube et
-> résumé ne sont pas commencés. Détail dans [Testing Status](#testing-status).
+> **Statut : en cours de développement.** Transcription locale, diarisation et
+> traitement par lot sont implémentés et validés — la séparation des locuteurs
+> reste toutefois testée sur des voix de synthèse, sans chevauchement de parole.
+> YouTube et résumé ne sont pas commencés. Détail dans
+> [Testing Status](#testing-status).
 
 ## Fonctionnalités prévues
 
@@ -31,7 +32,8 @@ whisper-toolkit/
 ├── output/            # transcriptions produites (non versionné)
 ├── src/
 │   ├── transcribe.py  # transcription simple (mlx-whisper)
-│   └── diarize.py     # transcription + locuteurs (whisperx)
+│   ├── diarize.py     # transcription + locuteurs (whisperx)
+│   └── batch.py       # traitement d'un dossier entier
 └── tests/             # tests (vide pour l'instant)
 ```
 
@@ -59,6 +61,37 @@ Les deux modules sont indépendants : ni import croisé, ni état partagé.
 `diarize.py` refait sa propre transcription plutôt que de réutiliser celle de
 `transcribe.py`, car l'alignement au mot exige les sorties internes de
 faster-whisper.
+
+### `batch.py` — orchestration, pas un troisième pipeline
+
+`batch.py` **ne contient aucune logique de traitement audio**. Il liste les
+fichiers d'un dossier et délègue, fichier par fichier, à l'un des deux pipelines
+ci-dessus :
+
+```
+dossier ──> list_audio_files()          (filtre sur SUPPORTED_EXTENSIONS)
+        ──> pour chaque fichier :
+              transcribe_file() + save_transcript()            (défaut)
+              diarize_file()    + save_diarized_transcript()   (--diarize)
+        ──> {"success": [...], "failed": [(chemin, erreur), ...]}
+```
+
+Il importe `SUPPORTED_EXTENSIONS` depuis `transcribe.py` au lieu de la
+redéfinir : ajouter un format là-bas le rend disponible ici sans rien toucher.
+
+**Robustesse aux échecs partiels.** Chaque fichier est traité dans son propre
+`try/except` : un fichier illisible n'interrompt pas le lot. Le résumé final
+liste les échecs avec leur raison, et le processus sort en code 1 si au moins un
+fichier a échoué — pratique pour enchaîner dans un script.
+
+**Pas de surveillance continue de dossier.** Un simple traitement de lot couvre
+l'usage réel (« transcrire tous les cours de la semaine d'un coup »). Le mode
+watchdog ne sera ajouté que si le besoin se confirme.
+
+Les imports entre modules de `src/` sont **plats** (`from transcribe import …`),
+parce que ces fichiers s'exécutent comme des scripts : `python src/batch.py`
+place `src/` en tête de `sys.path`. Un `python -m src.batch` ne fonctionnerait
+pas sans imports relatifs.
 
 ### Pipeline de `diarize.py`
 
@@ -163,9 +196,16 @@ signifie ici : lancé pour de vrai et sortie vérifiée — pas seulement compil
 | └ erreur 401 vs 403 | ✅ | ✅ | ✅ | messages distincts, vérifiés en vrai HTTP |
 | └ erreur fichier absent | ✅ | ✅ | ✅ | message clair + `exit 1` |
 | └ `--num-speakers` | ✅ | ✅ | ✅ | `2` respecté sur la fixture 2 voix |
+| `src/batch.py` | ✅ | ✅ | ✅ | validé le 2026-08-07 |
+| └ `list_audio_files()` | ✅ | ✅ | ✅ | filtre extensions, ignore `.txt` et sous-dossiers |
+| └ `process_folder()` | ✅ | ✅ | ✅ | mode transcription et mode `--diarize` |
+| └ échec partiel | ✅ | ✅ | ✅ | **le lot continue**, 2/3 traités sur fichier corrompu |
+| └ `--num-speakers` propagé | ✅ | ✅ | ✅ | borne `[2, 2]` bien reçue par pyannote |
+| └ `_short_reason()` | ✅ | ✅ | ✅ | bannière ffmpeg de 13 lignes réduite à 1 |
+| └ dossier introuvable / vide | ✅ | ✅ | ✅ | `exit 1` / `exit 0` avec message |
 | `src/__init__.py` | ✅ (vide) | ✅ | n/a | simple marqueur de package |
 | YouTube (`yt-dlp`) | ❌ | — | — | dépendance installée, code non écrit |
-| Batch / surveillance dossier | ❌ | — | — | étape ultérieure |
+| Surveillance de dossier | ❌ | — | — | volontairement non implémentée |
 | Résumé (API Claude) | ❌ | — | — | `anthropic` absent de `requirements.txt` |
 | `tests/` | ❌ vide | — | — | aucun test automatisé |
 
@@ -346,6 +386,46 @@ non-régression pour `diarize.py`.
 > mesurer la F0 des deux extraits avant de s'en servir. 225 Hz contre 128 Hz
 > valide la fixture ; deux valeurs voisines la disqualifient.
 
+### Test 5 — `batch.py`, robustesse aux échecs partiels (2026-08-07)
+
+Dossier de test monté hors dépôt, contenant volontairement de quoi faire échouer
+le lot :
+
+| Fichier | Nature | Attendu |
+|---|---|---|
+| `01_deux_voix.wav` | fixture synthétique 2 voix, 9,5 s | traité |
+| `02_vocal.wav` | enregistrement réel, mono-locuteur | traité |
+| `03_corrompu.wav` | fichier texte renommé en `.wav` | **échec isolé** |
+| `04_ignore.txt` | extension non audio | ignoré au listage |
+| `sous_dossier/` | répertoire | ignoré au listage |
+
+**Résultat, mode transcription** (`python src/batch.py <dossier>`) :
+
+| Critère | Obtenu | |
+|---|---|---|
+| Fichiers listés | 3 sur 5 entrées | ✅ `.txt` et dossier écartés |
+| Traités avec succès | 2 | ✅ |
+| Échecs | 1 (`03_corrompu.wav`) | ✅ isolé |
+| Le lot s'est poursuivi après l'échec | oui | ✅ |
+| Sortie produite pour le fichier en échec | aucune | ✅ |
+| Code de sortie | 1 | ✅ échec partiel signalé |
+| Durée | 6,9 s | |
+
+**Résultat, mode diarisation** (`--diarize --num-speakers 2`) : même comptage,
+2 succès et 1 échec isolé, sorties `*_diarized.txt` produites, 39,5 s. La borne
+`--num-speakers 2` est bien parvenue à pyannote — il l'a signalée comme
+inatteignable sur le fichier mono-locuteur, ce qui confirme la propagation du
+paramètre à travers `batch.py`.
+
+Cas limites vérifiés séparément : dossier inexistant → message clair et `exit 1` ;
+dossier sans aucun fichier audio → message et `exit 0`, sans erreur.
+
+> **Lisibilité du résumé.** Quand ffmpeg échoue, il recrache sa bannière de
+> compilation : l'erreur brute du fichier corrompu fait **13 lignes et
+> 1173 caractères**, ce qui noyait tout le résumé du lot. `_short_reason()` la
+> réduit à sa première ligne pour l'affichage. L'erreur complète reste
+> accessible dans le dict retourné par `process_folder()`.
+
 ### Environnement de test (vérifié le 2026-08-06)
 
 Mac M5 (`Darwin arm64`) — tout est en place :
@@ -392,6 +472,11 @@ Mac M5 (`Darwin arm64`) — tout est en place :
 - Fichier audio corrompu ou tronqué : remonte aujourd'hui en `RuntimeError`
   brute de `mlx_whisper` avec une stacktrace, au lieu d'un message propre.
 - Fichier long (> 30 min) : comportement mémoire et découpage non observés.
+- `batch.py` sur un vrai lot : testé sur 3 fichiers courts. Le comportement sur
+  plusieurs dizaines de fichiers longs — durée totale, mémoire, rechargement du
+  modèle à chaque fichier — n'a pas été observé.
+- `batch.py` écrase silencieusement une sortie déjà présente dans `output/` :
+  relancer un lot retraite tout, sans reprise ni saut des fichiers déjà faits.
 - Autres langues et autres modèles que les valeurs par défaut.
 - Tests automatisés dans `tests/` : aucun pour l'instant, tout a été vérifié
   à la main.
