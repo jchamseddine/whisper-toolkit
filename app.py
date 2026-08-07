@@ -464,6 +464,25 @@ def _transcribe_recording(data: bytes, language: str | None) -> dict:
     return {"text": text.strip(), "error": None, "path": None}
 
 
+def _reset_dictation() -> None:
+    """Repart d'un widget vierge, sans garder l'enregistrement précédent.
+
+    Passée en `on_click`, cette fonction s'exécute *avant* la réexécution du
+    script : les clés sont donc effacées pendant qu'aucun widget n'est
+    instancié, ce qu'une suppression en plein rendu ne permettrait pas.
+
+    L'audio du tour précédent est retiré de `session_state` explicitement.
+    Incrémenter le compteur suffirait à afficher un widget neuf, mais les octets
+    de la dictée resteraient en mémoire jusqu'à la fin de la session — pour un
+    onglet dont l'engagement est de ne rien garder, ce serait un oubli.
+    """
+    tour = st.session_state.get("dictation_round", 0)
+    st.session_state.pop(f"dictation_input_{tour}", None)
+    st.session_state.pop(f"dictation_save_{tour}", None)
+    st.session_state.pop("dictation", None)
+    st.session_state["dictation_round"] = tour + 1
+
+
 def _tab_dictation() -> None:
     """Dicter au micro et récupérer le texte, sans rien laisser derrière.
 
@@ -485,7 +504,13 @@ def _tab_dictation() -> None:
     )
     language = LANGUAGES[language_label]
 
-    recording = st.audio_input("Enregistrement", key="dictation_input")
+    # La clé du widget porte un numéro de tour, parce que Streamlit n'offre aucun
+    # moyen de vider un `audio_input` en place : sans clé neuve, il garderait son
+    # enregistrement et l'onglet resterait bloqué sur la première dictée. Changer
+    # la clé lui fait construire un widget vierge — c'est le geste de
+    # « Nouvelle dictée ».
+    tour = st.session_state.setdefault("dictation_round", 0)
+    recording = st.audio_input("Enregistrement", key=f"dictation_input_{tour}")
     if recording is None:
         # Enregistrement supprimé par l'utilisateur : le texte qui l'accompagnait
         # n'a plus de sujet.
@@ -507,31 +532,35 @@ def _tab_dictation() -> None:
 
     if state["error"]:
         st.error(state["error"])
-        return
-
-    if not state["text"]:
+    elif not state["text"]:
         st.warning("Rien n'a été transcrit — enregistrement vide ou inaudible.")
-        return
+    else:
+        # `st.code` plutôt qu'un `text_area` : il porte un bouton « copier »
+        # natif, qui est le geste attendu ici.
+        st.code(state["text"], language=None, wrap_lines=True)
 
-    # `st.code` plutôt qu'un `text_area` : il porte un bouton « copier » natif,
-    # qui est le geste attendu ici.
-    st.code(state["text"], language=None, wrap_lines=True)
+        if st.checkbox(
+            "Sauvegarder quand même dans output/",
+            key=f"dictation_save_{tour}",
+            help="Décoché, rien n'est écrit : la dictée ne vit que dans cet écran.",
+        ):
+            if not state["path"]:
+                from transcribe import save_transcript
 
-    if st.checkbox(
-        "Sauvegarder quand même dans output/",
-        key="dictation_save",
-        help="Décoché, rien n'est écrit : la dictée ne vit que dans cet écran.",
-    ):
-        if not state["path"]:
-            from transcribe import save_transcript
+                # `save_transcript()` ne lit pas l'audio, il ne se sert de ce
+                # chemin que pour nommer sa sortie — c'est justement ce qui
+                # permet de le nommer sans reconstruire la convention ici. Le
+                # fichier temporaire, lui, n'existe plus depuis longtemps.
+                horodatage = datetime.now().strftime("%Y-%m-%d-%Hh%M")
+                state["path"] = save_transcript(
+                    state["text"], f"dictee-{horodatage}.wav"
+                )
+            st.success(f"Transcription enregistrée : {state['path']}")
 
-            # `save_transcript()` ne lit pas l'audio, il ne se sert de ce chemin
-            # que pour nommer sa sortie — c'est justement ce qui permet de le
-            # nommer sans reconstruire la convention ici. Le fichier temporaire,
-            # lui, n'existe plus depuis longtemps.
-            horodatage = datetime.now().strftime("%Y-%m-%d-%Hh%M")
-            state["path"] = save_transcript(state["text"], f"dictee-{horodatage}.wav")
-        st.success(f"Transcription enregistrée : {state['path']}")
+    # Proposé dans les trois cas, y compris quand rien n'a été transcrit : une
+    # dictée inaudible est autant une impasse qu'une réussie, et c'est le seul
+    # moyen d'en relancer une.
+    st.button("Nouvelle dictée", key="dictation_reset", on_click=_reset_dictation)
 
 
 def _tab_youtube() -> None:
