@@ -1,8 +1,8 @@
-"""Traitement par lot : transcrit (ou diarise) tous les fichiers d'un dossier.
+"""Batch processing: transcribe (or diarize) every file in a folder.
 
-Ne contient aucune logique de transcription propre : orchestre `transcribe.py`
-et `diarize.py`. Les imports sont plats parce que ce module s'exécute comme un
-script (`python src/batch.py`), ce qui place `src/` en tête de `sys.path`.
+Holds no transcription logic of its own: it orchestrates `transcribe.py` and
+`diarize.py`. Imports are flat because this module runs as a script
+(`python src/batch.py`), which puts `src/` at the front of `sys.path`.
 """
 
 import argparse
@@ -19,15 +19,14 @@ from transcribe import (
 
 
 def short_reason(reason: str, limit: int = 160) -> str:
-    """Réduit une erreur à une ligne affichable.
+    """Reduce an error to a single displayable line.
 
-    ffmpeg recrache sa bannière de compilation complète en cas d'échec : sans
-    ça, un seul fichier en erreur noie tout le résumé du lot. L'erreur entière
-    reste dans le dict retourné par `process_folder`.
+    ffmpeg spits out its entire build banner when it fails: without this, one
+    failing file drowns the whole batch summary. The full error stays in the
+    dict returned by `process_folder`.
 
-    Publique pour la même raison que `report_summary()` : le tableau d'échecs de
-    l'interface web en a besoin aussi, et cette mise en forme n'a qu'une
-    définition.
+    Public for the same reason as `report_summary()`: the web interface's
+    failure table needs it too, and this formatting has a single definition.
     """
     first_line = reason.splitlines()[0].strip()
     if len(first_line) > limit:
@@ -36,9 +35,9 @@ def short_reason(reason: str, limit: int = 160) -> str:
 
 
 def list_audio_files(folder_path: str) -> list[str]:
-    """Retourne les fichiers audio du dossier, triés par nom."""
+    """Return the folder's audio files, sorted by name."""
     if not os.path.isdir(folder_path):
-        raise NotADirectoryError(f"Dossier introuvable : {folder_path}")
+        raise NotADirectoryError(f"Folder not found: {folder_path}")
 
     paths = []
     for name in sorted(os.listdir(folder_path)):
@@ -58,32 +57,32 @@ def process_folder(
     force: bool = False,
     language: str | None = None,
 ) -> dict:
-    """Traite tous les fichiers audio d'un dossier.
+    """Process every audio file in a folder.
 
-    `language` ne concerne que la transcription : en diarisation, whisperx
-    détecte la langue de son côté, fichier par fichier.
+    `language` only concerns transcription: when diarizing, whisperx detects the
+    language on its own, file by file.
 
-    Reprise par défaut : un fichier dont la sortie existe déjà est sauté, ce
-    qui permet de relancer un lot interrompu sans tout refaire. `force=True`
-    retraite tout. La présence du fichier de sortie est le seul critère — son
-    contenu n'est pas inspecté.
+    Resuming is the default: a file whose output already exists is skipped,
+    which is what lets an interrupted batch be restarted without redoing
+    everything. `force=True` reprocesses everything. The presence of the output
+    file is the only criterion — its content is never inspected.
 
-    Un fichier en échec n'interrompt pas le lot. Retourne
-    `{"success": [chemins], "failed": [(chemin, erreur)], "skipped": [chemins]}`.
+    A failing file does not interrupt the batch. Returns
+    `{"success": [paths], "failed": [(path, error)], "skipped": [paths]}`.
     """
     audio_files = list_audio_files(folder_path)
     total = len(audio_files)
     summary: dict = {"success": [], "failed": [], "skipped": []}
 
     if not total:
-        print(f"Aucun fichier audio dans {folder_path}", file=sys.stderr)
+        print(f"No audio file in {folder_path}", file=sys.stderr)
         return summary
 
     for index, audio_path in enumerate(audio_files, start=1):
         print(f"[{index}/{total}] {os.path.basename(audio_path)}", file=sys.stderr)
 
-        # Chemin demandé aux modules qui l'écrivent, pour que la détection de
-        # reprise suive automatiquement tout changement de convention.
+        # The path is asked of the modules that write it, so that resume
+        # detection automatically follows any change of convention.
         expected_output = (
             diarized_transcript_path(audio_path)
             if diarize
@@ -91,7 +90,7 @@ def process_folder(
         )
         if not force and os.path.isfile(expected_output):
             summary["skipped"].append(audio_path)
-            print(f"        sauté — déjà traité : {expected_output}", file=sys.stderr)
+            print(f"        skipped — already done: {expected_output}", file=sys.stderr)
             continue
 
         try:
@@ -102,10 +101,10 @@ def process_folder(
                 text = transcribe_file(audio_path, language=language)
                 output_path = save_transcript(text, audio_path)
         except Exception as error:
-            # Volontairement large : le but du lot est d'arriver au bout, quelle
-            # que soit la façon dont un fichier échoue.
+            # Deliberately broad: the point of a batch is to reach the end,
+            # whatever way a single file fails.
             summary["failed"].append((audio_path, f"{type(error).__name__}: {error}"))
-            print(f"        échec — {type(error).__name__}", file=sys.stderr)
+            print(f"        failed — {type(error).__name__}", file=sys.stderr)
             continue
 
         summary["success"].append(audio_path)
@@ -113,60 +112,60 @@ def process_folder(
 
     processed = len(summary["success"]) + len(summary["failed"])
     print(
-        f"\n{len(summary['success'])}/{processed} fichiers traités"
-        f" ({len(summary['skipped'])} sautés sur {total})",
+        f"\n{len(summary['success'])}/{processed} files processed"
+        f" ({len(summary['skipped'])} skipped out of {total})",
         file=sys.stderr,
     )
     return summary
 
 
 def report_summary(summary: dict) -> None:
-    """Affiche le bilan d'un lot sur stdout.
+    """Print a batch report on stdout.
 
-    Séparé de `main()` parce que `cli.py` produit le même bilan : le format
-    d'affichage du lot n'a qu'une définition. Ne décide pas du code de sortie —
-    c'est à l'appelant de le faire à partir de `summary["failed"]`.
+    Separate from `main()` because `cli.py` produces the same report: the
+    batch display format has a single definition. Does not decide the exit
+    code — that is the caller's job, from `summary["failed"]`.
     """
-    print(f"Succès : {len(summary['success'])}")
+    print(f"Succeeded: {len(summary['success'])}")
 
     if summary["skipped"]:
-        print(f"Sautés : {len(summary['skipped'])} (déjà traités — --force pour refaire)")
+        print(f"Skipped: {len(summary['skipped'])} (already done — --force to redo)")
         for path in summary["skipped"]:
             print(f"  - {os.path.basename(path)}")
 
     if summary["failed"]:
-        print(f"Échecs : {len(summary['failed'])}")
+        print(f"Failed: {len(summary['failed'])}")
         for path, reason in summary["failed"]:
-            print(f"  - {os.path.basename(path)} : {short_reason(reason)}")
+            print(f"  - {os.path.basename(path)}: {short_reason(reason)}")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Transcrit tous les fichiers audio d'un dossier."
+        description="Transcribe every audio file in a folder."
     )
-    parser.add_argument("folder_path", help="Dossier contenant les fichiers audio")
+    parser.add_argument("folder_path", help="Folder containing the audio files")
     parser.add_argument(
         "--diarize",
         action="store_true",
-        help="Identifier les locuteurs (whisperx) au lieu d'une simple transcription",
+        help="Identify speakers (whisperx) instead of a plain transcription",
     )
     parser.add_argument(
         "--num-speakers",
         type=int,
         default=None,
-        help="Nombre exact de locuteurs, si connu (avec --diarize)",
+        help="Exact number of speakers, if known (with --diarize)",
     )
     parser.add_argument(
         "--force",
         action="store_true",
-        help="Retraiter les fichiers dont la sortie existe déjà "
-        "(par défaut : reprise, ces fichiers sont sautés)",
+        help="Reprocess files whose output already exists "
+        "(default: resume, those files are skipped)",
     )
     parser.add_argument(
         "--language",
         default=None,
-        help="Forcer la langue (ex. fr, en), sans effet avec --diarize. "
-        "Par défaut : détection automatique",
+        help="Force the language (e.g. fr, en), no effect with --diarize. "
+        "Default: auto-detect",
     )
     args = parser.parse_args()
 
@@ -179,7 +178,7 @@ def main() -> None:
             language=args.language,
         )
     except NotADirectoryError as error:
-        print(f"Erreur : {error}", file=sys.stderr)
+        print(f"Error: {error}", file=sys.stderr)
         sys.exit(1)
 
     report_summary(summary)

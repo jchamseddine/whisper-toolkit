@@ -1,9 +1,9 @@
-"""Résumé d'une transcription via l'API Claude.
+"""Summarizing a transcript via the Claude API.
 
-Étape distincte de la transcription : ce module prend un fichier texte déjà
-produit par `transcribe.py`, `diarize.py` ou `batch.py`, jamais de l'audio.
-C'est aussi le seul module du toolkit qui sorte de la machine — tout le reste
-tourne en local.
+A step distinct from transcription: this module takes a text file already
+produced by `transcribe.py`, `diarize.py` or `batch.py`, never audio. It is also
+the only module in the toolkit that leaves the machine — everything else runs
+locally.
 """
 
 import argparse
@@ -12,57 +12,57 @@ import sys
 
 from dotenv import load_dotenv
 
-# Sonnet courant. `claude-opus-5` est plus capable si le besoin s'en fait
-# sentir : changer cette constante, ou passer --model, suffit.
+# Current Sonnet. `claude-opus-5` is more capable should the need arise:
+# changing this constant, or passing --model, is enough.
 DEFAULT_MODEL = "claude-sonnet-5"
-DEFAULT_STYLE = "concis"
+DEFAULT_STYLE = "concise"
 
 API_KEY_ENV_VAR = "ANTHROPIC_API_KEY"
 CONSOLE_URL = "https://console.anthropic.com/settings/keys"
 
-# Un résumé est court par nature ; la borne sert à éviter une facture surprise
-# si le modèle part en digression. La troncature est détectée plus bas.
+# A summary is short by nature; the bound is there to avoid a surprise bill if
+# the model wanders off. Truncation is detected further down.
 MAX_TOKENS = 4096
 
-# Garde-fou d'entrée, très en dessous de la fenêtre de contexte du modèle
-# (1 M tokens, soit plusieurs millions de caractères). Il ne sert pas à
-# protéger l'API mais à transformer un refus distant obscur en erreur locale
-# lisible, avant de payer l'appel. Pas de découpage : hors usage actuel.
+# Input guard, far below the model's context window (1M tokens, i.e. several
+# million characters). Its purpose is not to protect the API but to turn an
+# obscure remote refusal into a readable local error, before paying for the
+# call. No chunking: outside current usage.
 MAX_INPUT_CHARS = 150_000
 
 MISSING_KEY_HELP = (
-    f"Clé API Anthropic introuvable.\n"
-    f"1. Crée une clé sur {CONSOLE_URL}\n"
-    f"2. Renseigne-la dans un fichier .env à la racine du projet :\n"
+    f"Anthropic API key not found.\n"
+    f"1. Create a key at {CONSOLE_URL}\n"
+    f"2. Put it in a .env file at the project root:\n"
     f"       {API_KEY_ENV_VAR}=sk-ant-...\n"
-    f"   (.env est déjà ignoré par git)"
+    f"   (.env is already ignored by git)"
 )
 
 SYSTEM_PROMPT = """\
-Tu résumes des transcriptions audio : réunions, cours, entretiens, notes vocales.
+You summarize audio transcripts: meetings, lectures, interviews, voice notes.
 
-Le texte vient d'un système de reconnaissance vocale. Il peut contenir des mots
-mal reconnus, une ponctuation approximative et des marques d'oral (hésitations,
-répétitions, phrases interrompues). Lis à travers ces défauts sans les
-commenter. Quand le texte est étiqueté par locuteur — des lignes en
-`[SPEAKER_00]` —, sers-t'en pour attribuer les propos, en gardant ces
-identifiants tels quels : ils ne correspondent à aucun nom connu.
+The text comes from a speech recognition system. It may contain misheard words,
+approximate punctuation and marks of speech (hesitations, repetitions,
+interrupted sentences). Read through those flaws without commenting on them.
+When the text is labelled by speaker — lines in `[SPEAKER_00]` — use that to
+attribute statements, keeping those identifiers as they are: they correspond to
+no known name.
 
-Structure le résumé ainsi :
-- une phrase d'ouverture qui dit de quoi il s'agit ;
-- les points clés, en liste ;
-- les décisions et les actions à retenir, s'il y en a — sinon n'invente pas la
-  section.
+Structure the summary as follows:
+- an opening sentence saying what this is about;
+- the key points, as a list;
+- the decisions and action items worth keeping, if there are any — otherwise do
+  not invent the section.
 
-Reformule dans tes mots plutôt que de recopier des phrases entières. Si un
-passage est trop dégradé pour être compris, dis-le au lieu de deviner.
+Rephrase in your own words rather than copying whole sentences. If a passage is
+too degraded to be understood, say so instead of guessing.
 
-Réponds en français, quelle que soit la langue de la transcription, et donne le
-résumé seul, sans préambule ni commentaire sur la tâche."""
+Answer in English, whatever the language of the transcript, and give the summary
+alone, with no preamble or comment about the task."""
 
 
 def _resolve_api_key(api_key: str | None) -> str:
-    """Retourne la clé fournie, sinon celle du .env."""
+    """Return the supplied key, otherwise the one from .env."""
     if api_key:
         return api_key
 
@@ -75,55 +75,55 @@ def _resolve_api_key(api_key: str | None) -> str:
 
 
 def _api_error_help(error: Exception) -> str:
-    """Traduit une erreur de l'API en message actionnable.
+    """Turn an API error into an actionable message.
 
-    Le texte de l'exception est repris tel quel pour les cas non prévus : le
-    SDK n'y fait jamais figurer la clé, seulement le code et le motif.
+    The exception text is reused as-is for unforeseen cases: the SDK never puts
+    the key in it, only the code and the reason.
     """
     import anthropic
 
     if isinstance(error, anthropic.AuthenticationError):
         return (
-            f"Clé API refusée (HTTP 401).\n"
-            f"Elle est invalide, révoquée, ou mal recopiée dans .env.\n"
-            f"→ Vérifie ou régénère-la sur {CONSOLE_URL}."
+            f"API key rejected (HTTP 401).\n"
+            f"It is invalid, revoked, or mistyped in .env.\n"
+            f"→ Check or regenerate it at {CONSOLE_URL}."
         )
 
     if isinstance(error, anthropic.PermissionDeniedError):
         return (
-            f"Accès refusé (HTTP 403).\n"
-            f"La clé est valide mais n'a pas le droit d'appeler ce modèle.\n"
-            f"→ Vérifie les permissions de la clé sur {CONSOLE_URL}."
+            f"Access denied (HTTP 403).\n"
+            f"The key is valid but is not allowed to call this model.\n"
+            f"→ Check the key's permissions at {CONSOLE_URL}."
         )
 
     if isinstance(error, anthropic.NotFoundError):
         return (
-            f"Modèle introuvable (HTTP 404).\n"
-            f"L'identifiant demandé n'existe pas ou n'est pas accessible.\n"
-            f"Détail : {error}"
+            f"Model not found (HTTP 404).\n"
+            f"The requested id does not exist or is not accessible.\n"
+            f"Detail: {error}"
         )
 
     if isinstance(error, anthropic.RateLimitError):
-        return "Quota dépassé (HTTP 429). Attends quelques instants et relance."
+        return "Rate limit exceeded (HTTP 429). Wait a moment and run again."
 
-    # Solde épuisé : remonte en 400, pas en 401/403. La clé est valide, donc
-    # sans ce cas le message renvoyait vers la régénération d'une clé qui n'a
-    # aucun problème.
+    # Exhausted balance: surfaces as a 400, not a 401/403. The key is valid, so
+    # without this case the message pointed at regenerating a key that has
+    # nothing wrong with it.
     if "credit balance is too low" in str(error):
         return (
-            "Solde de crédits insuffisant sur le compte Anthropic (HTTP 400).\n"
-            "La clé est valide : c'est le compte qui n'a plus de crédits.\n"
-            "→ Ajoute des crédits dans Plans & Billing sur console.anthropic.com,\n"
-            "  puis relance."
+            "Insufficient credit balance on the Anthropic account (HTTP 400).\n"
+            "The key is valid: it is the account that has run out of credits.\n"
+            "→ Add credits under Plans & Billing on console.anthropic.com,\n"
+            "  then run again."
         )
 
     if isinstance(error, anthropic.APIConnectionError):
         return (
-            "Impossible de joindre l'API Anthropic.\n"
-            "Vérifie la connexion réseau, puis relance."
+            "Could not reach the Anthropic API.\n"
+            "Check the network connection, then run again."
         )
 
-    return f"Échec de l'appel à l'API Claude.\nDétail : {error}"
+    return f"Call to the Claude API failed.\nDetail: {error}"
 
 
 def summarize_text(
@@ -132,21 +132,21 @@ def summarize_text(
     style: str = DEFAULT_STYLE,
     api_key: str | None = None,
 ) -> str:
-    """Résume une transcription et retourne le texte du résumé."""
+    """Summarize a transcript and return the summary text."""
     if not text.strip():
-        raise ValueError("Transcription vide : rien à résumer.")
+        raise ValueError("Empty transcript: nothing to summarize.")
 
     if len(text) > MAX_INPUT_CHARS:
         raise ValueError(
-            f"Transcription trop longue : {len(text):,} caractères pour un "
-            f"maximum de {MAX_INPUT_CHARS:,}.\n"
-            f"Découpe le fichier et résume chaque partie séparément.".replace(",", " ")
+            f"Transcript too long: {len(text):,} characters for a maximum of "
+            f"{MAX_INPUT_CHARS:,}.\n"
+            f"Split the file and summarize each part separately.".replace(",", " ")
         )
 
     key = _resolve_api_key(api_key)
 
-    # Import paresseux, comme pour whisperx et mlx_whisper : le reste du
-    # toolkit fonctionne sans le paquet `anthropic`.
+    # Lazy import, as for whisperx and mlx_whisper: the rest of the toolkit
+    # works without the `anthropic` package.
     import anthropic
 
     client = anthropic.Anthropic(api_key=key)
@@ -155,7 +155,7 @@ def summarize_text(
         response = client.messages.create(
             model=model,
             max_tokens=MAX_TOKENS,
-            system=f"{SYSTEM_PROMPT}\n\nStyle attendu pour ce résumé : {style}.",
+            system=f"{SYSTEM_PROMPT}\n\nExpected style for this summary: {style}.",
             messages=[{"role": "user", "content": text}],
         )
     except Exception as error:
@@ -163,8 +163,8 @@ def summarize_text(
 
     if response.stop_reason == "refusal":
         raise ValueError(
-            "Le modèle a refusé de résumer ce contenu.\n"
-            "Rien n'a été produit ; la transcription est inchangée."
+            "The model refused to summarize this content.\n"
+            "Nothing was produced; the transcript is unchanged."
         )
 
     summary = "".join(
@@ -173,7 +173,7 @@ def summarize_text(
 
     if response.stop_reason == "max_tokens":
         print(
-            f"Attention : résumé tronqué à {MAX_TOKENS} tokens.",
+            f"Warning: summary truncated at {MAX_TOKENS} tokens.",
             file=sys.stderr,
         )
 
@@ -181,18 +181,18 @@ def summarize_text(
 
 
 def summary_path(transcript_path: str, output_dir: str = "output") -> str:
-    """Chemin de sortie attendu pour `transcript_path`, sans rien écrire.
+    """Expected output path for `transcript_path`, without writing anything.
 
-    Pendant de `transcribe.transcript_path()` : c'est ce qui permet à `cli.py`
-    de savoir qu'un résumé existe déjà, et donc de ne pas repayer un appel à
-    l'API pour le refaire.
+    Counterpart of `transcribe.transcript_path()`: this is what lets `cli.py`
+    know a summary already exists, and therefore not pay for an API call to
+    redo it.
     """
     stem = os.path.splitext(os.path.basename(transcript_path))[0]
     return os.path.join(output_dir, f"{stem}_summary.txt")
 
 
 def save_summary(summary: str, audio_path: str, output_dir: str = "output") -> str:
-    """Écrit le résumé dans output_dir et retourne le chemin du fichier."""
+    """Write the summary into output_dir and return the file path."""
     os.makedirs(output_dir, exist_ok=True)
     output_path = summary_path(audio_path, output_dir)
 
@@ -204,23 +204,23 @@ def save_summary(summary: str, audio_path: str, output_dir: str = "output") -> s
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Résume une transcription déjà produite, via l'API Claude."
+        description="Summarize an already-produced transcript, via the Claude API."
     )
     parser.add_argument(
-        "transcript_path", help="Fichier texte à résumer (pas un fichier audio)"
+        "transcript_path", help="Text file to summarize (not an audio file)"
     )
     parser.add_argument(
-        "--model", default=DEFAULT_MODEL, help=f"Modèle Claude (défaut : {DEFAULT_MODEL})"
+        "--model", default=DEFAULT_MODEL, help=f"Claude model (default: {DEFAULT_MODEL})"
     )
     parser.add_argument(
         "--style",
         default=DEFAULT_STYLE,
-        help=f"Style du résumé, en toutes lettres (défaut : {DEFAULT_STYLE})",
+        help=f"Summary style, in plain words (default: {DEFAULT_STYLE})",
     )
     args = parser.parse_args()
 
     if not os.path.isfile(args.transcript_path):
-        print(f"Erreur : fichier introuvable : {args.transcript_path}", file=sys.stderr)
+        print(f"Error: file not found: {args.transcript_path}", file=sys.stderr)
         sys.exit(1)
 
     with open(args.transcript_path, encoding="utf-8") as f:
@@ -229,13 +229,13 @@ def main() -> None:
     try:
         summary = summarize_text(text, model=args.model, style=args.style)
     except ValueError as error:
-        print(f"Erreur : {error}", file=sys.stderr)
+        print(f"Error: {error}", file=sys.stderr)
         sys.exit(1)
 
     print(summary)
 
     output_path = save_summary(summary, args.transcript_path)
-    print(f"\nRésumé enregistré : {output_path}", file=sys.stderr)
+    print(f"\nSummary saved: {output_path}", file=sys.stderr)
 
 
 if __name__ == "__main__":

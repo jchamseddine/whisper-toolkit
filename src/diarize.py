@@ -1,36 +1,36 @@
-"""Diarisation (qui parle quand) via whisperx.
+"""Diarization (who speaks when) via whisperx.
 
-Pipeline distinct de `transcribe.py` : whisperx s'appuie sur faster-whisper
-(backend CTranslate2), qui n'a pas de support Metal — tout tourne donc sur CPU
-ici, contrairement à la transcription mlx-whisper.
+A pipeline distinct from `transcribe.py`: whisperx builds on faster-whisper
+(CTranslate2 backend), which has no Metal support — everything here therefore
+runs on CPU, unlike mlx-whisper transcription.
 """
 
 import argparse
 import os
 import sys
 
-# whisperx appelle `nltk.download('punkt_tab')` pendant l'alignement. Par défaut
-# NLTK écrit dans ~/nltk_data ; on veut le cache dans le repo.
+# whisperx calls `nltk.download('punkt_tab')` during alignment. By default NLTK
+# writes to ~/nltk_data; we want the cache inside the repo.
 #
-# `NLTK_DATA` doit être posé AVANT `import nltk`, et pas seulement complété par
-# un `nltk.data.path.insert()` après coup : à l'import, nltk.downloader
-# construit un singleton `_downloader` dont le dossier de destination est figé
-# une fois pour toutes (`Downloader.__init__` → `default_download_dir()`).
-# Modifier `nltk.data.path` ensuite corrige la *lecture*, mais plus l'écriture.
+# `NLTK_DATA` must be set BEFORE `import nltk`, and not merely topped up with a
+# later `nltk.data.path.insert()`: at import time, nltk.downloader builds a
+# `_downloader` singleton whose destination folder is frozen once and for all
+# (`Downloader.__init__` → `default_download_dir()`). Changing `nltk.data.path`
+# afterwards fixes *reading*, but no longer writing.
 #
-# Le makedirs n'est pas optionnel non plus : NLTK ne retient un chemin que s'il
-# existe et est writable, or `.nltk_data/` est gitignoré donc absent d'un clone.
+# The makedirs is not optional either: NLTK only keeps a path if it exists and
+# is writable, and `.nltk_data/` is gitignored, hence absent from a clone.
 _NLTK_DATA_DIR = os.path.abspath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".nltk_data")
 )
 os.makedirs(_NLTK_DATA_DIR, exist_ok=True)
 os.environ["NLTK_DATA"] = _NLTK_DATA_DIR
 
-import nltk  # noqa: E402  -- doit suivre NLTK_DATA
+import nltk  # noqa: E402  -- must follow NLTK_DATA
 from dotenv import load_dotenv  # noqa: E402
 
-# Filet de sécurité : si un autre module a déjà importé nltk, la variable
-# d'environnement est arrivée trop tard pour peupler `nltk.data.path`.
+# Safety net: if another module already imported nltk, the environment variable
+# arrived too late to populate `nltk.data.path`.
 if _NLTK_DATA_DIR not in nltk.data.path:
     nltk.data.path.insert(0, _NLTK_DATA_DIR)
 
@@ -39,22 +39,22 @@ DEFAULT_DIARIZATION_MODEL = "pyannote/speaker-diarization-community-1"
 TOKEN_ENV_VAR = "HF_TOKEN"
 TOKENS_URL = "https://huggingface.co/settings/tokens"
 
-# CTranslate2 ne gère ni Metal ni MPS : CPU obligatoire. int8 plutôt que le
-# float32 par défaut, sinon large-v3 sur CPU est très lent.
+# CTranslate2 supports neither Metal nor MPS: CPU is mandatory. int8 rather than
+# the default float32, otherwise large-v3 on CPU is very slow.
 DEVICE = "cpu"
 COMPUTE_TYPE = "int8"
 
 MISSING_TOKEN_HELP = (
-    f"Token Hugging Face introuvable.\n"
-    f"1. Crée un token sur {TOKENS_URL}\n"
-    f"2. Renseigne-le dans un fichier .env à la racine du projet :\n"
+    f"Hugging Face token not found.\n"
+    f"1. Create a token at {TOKENS_URL}\n"
+    f"2. Put it in a .env file at the project root:\n"
     f"       {TOKEN_ENV_VAR}=hf_xxxxxxxxxxxxxxxx\n"
-    f"   (ou passe-le en argument à diarize_file)"
+    f"   (or pass it as an argument to diarize_file)"
 )
 
 
 def _resolve_token(hf_token: str | None) -> str:
-    """Retourne le token fourni, sinon celui du .env."""
+    """Return the supplied token, otherwise the one from .env."""
     if hf_token:
         return hf_token
 
@@ -67,12 +67,12 @@ def _resolve_token(hf_token: str | None) -> str:
 
 
 def _http_status(error: Exception) -> int | None:
-    """Extrait le code HTTP d'une erreur huggingface_hub, si présent."""
+    """Extract the HTTP code from a huggingface_hub error, if present."""
     status = getattr(getattr(error, "response", None), "status_code", None)
     if status is not None:
         return status
 
-    # pyannote ré-emballe parfois l'erreur en perdant l'objet `response`.
+    # pyannote sometimes rewraps the error and loses the `response` object.
     message = str(error)
     for code in (401, 403):
         if f"{code} Client Error" in message:
@@ -82,34 +82,34 @@ def _http_status(error: Exception) -> int | None:
 
 
 def _diarization_error_help(error: Exception, diarization_model: str) -> str:
-    """Traduit un échec de chargement pyannote en message actionnable.
+    """Turn a pyannote loading failure into an actionable message.
 
-    401 et 403 remontent tous deux en `GatedRepoError`, mais appellent des
-    corrections opposées : refaire le token, ou accepter les conditions.
+    401 and 403 both surface as `GatedRepoError`, but call for opposite fixes:
+    redo the token, or accept the terms.
     """
     status = _http_status(error)
 
     if status == 403:
         return (
-            f"Accès refusé au modèle {diarization_model} (HTTP 403).\n"
-            f"Le token est valide, mais les conditions d'utilisation de ce modèle\n"
-            f"n'ont pas été acceptées sur le compte qui le détient.\n"
-            f"→ Accepte-les sur https://huggingface.co/{diarization_model}\n"
-            f"  (l'accès est accordé immédiatement), puis relance."
+            f"Access denied to model {diarization_model} (HTTP 403).\n"
+            f"The token is valid, but this model's terms of use have not been\n"
+            f"accepted on the account that holds it.\n"
+            f"→ Accept them at https://huggingface.co/{diarization_model}\n"
+            f"  (access is granted immediately), then run again."
         )
 
     if status == 401:
         return (
-            f"Token Hugging Face refusé (HTTP 401).\n"
-            f"Il est invalide, expiré, ou n'a pas le droit de lire les dépôts\n"
-            f"sous conditions d'accès.\n"
-            f"→ Vérifie ou régénère-le sur {TOKENS_URL},\n"
-            f"  puis mets à jour {TOKEN_ENV_VAR} dans .env."
+            f"Hugging Face token rejected (HTTP 401).\n"
+            f"It is invalid, expired, or lacks the right to read gated\n"
+            f"repositories.\n"
+            f"→ Check or regenerate it at {TOKENS_URL},\n"
+            f"  then update {TOKEN_ENV_VAR} in .env."
         )
 
     return (
-        f"Échec du chargement du modèle de diarisation {diarization_model}.\n"
-        f"Détail : {error}"
+        f"Failed to load diarization model {diarization_model}.\n"
+        f"Detail: {error}"
     )
 
 
@@ -120,16 +120,16 @@ def diarize_file(
     num_speakers: int | None = None,
     diarization_model: str = DEFAULT_DIARIZATION_MODEL,
 ) -> list[dict]:
-    """Transcrit, aligne et diarise un fichier audio.
+    """Transcribe, align and diarize an audio file.
 
-    Retourne une liste de segments `{start, end, text, speaker}`.
+    Returns a list of `{start, end, text, speaker}` segments.
     """
     if not os.path.isfile(audio_path):
-        raise FileNotFoundError(f"Fichier introuvable : {audio_path}")
+        raise FileNotFoundError(f"File not found: {audio_path}")
 
     token = _resolve_token(hf_token)
 
-    # Import paresseux : whisperx tire torch et pyannote, plusieurs secondes.
+    # Lazy import: whisperx pulls in torch and pyannote, several seconds.
     import whisperx
     from whisperx.diarize import DiarizationPipeline
 
@@ -148,7 +148,7 @@ def diarize_file(
             model_name=diarization_model, token=token, device=DEVICE
         )
     except Exception as error:
-        # pyannote remonte une erreur HTTP, ou un None qui casse au .to(device).
+        # pyannote surfaces an HTTP error, or a None that breaks at .to(device).
         raise ValueError(_diarization_error_help(error, diarization_model)) from error
 
     diarize_segments = diarize_pipeline(audio, num_speakers=num_speakers)
@@ -166,10 +166,10 @@ def diarize_file(
 
 
 def diarized_transcript_path(audio_path: str, output_dir: str = "output") -> str:
-    """Chemin de sortie attendu pour `audio_path`, sans rien écrire.
+    """Expected output path for `audio_path`, without writing anything.
 
-    Pendant de `transcribe.transcript_path()` pour le mode diarisation : c'est
-    ce qui permet à `batch.py` de détecter un fichier déjà traité.
+    Counterpart of `transcribe.transcript_path()` for diarization mode: this is
+    what lets `batch.py` detect an already-processed file.
     """
     stem = os.path.splitext(os.path.basename(audio_path))[0]
     return os.path.join(output_dir, f"{stem}_diarized.txt")
@@ -178,7 +178,7 @@ def diarized_transcript_path(audio_path: str, output_dir: str = "output") -> str
 def save_diarized_transcript(
     segments: list[dict], audio_path: str, output_dir: str = "output"
 ) -> str:
-    """Écrit les segments étiquetés par locuteur et retourne le chemin du fichier."""
+    """Write the speaker-labelled segments and return the file path."""
     os.makedirs(output_dir, exist_ok=True)
     output_path = diarized_transcript_path(audio_path, output_dir)
 
@@ -191,22 +191,22 @@ def save_diarized_transcript(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Transcrit et identifie les locuteurs d'un fichier audio (whisperx)."
+        description="Transcribe an audio file and identify its speakers (whisperx)."
     )
-    parser.add_argument("audio_path", help="Fichier audio à diariser")
+    parser.add_argument("audio_path", help="Audio file to diarize")
     parser.add_argument(
-        "--model", default=DEFAULT_MODEL, help=f"Modèle Whisper (défaut : {DEFAULT_MODEL})"
+        "--model", default=DEFAULT_MODEL, help=f"Whisper model (default: {DEFAULT_MODEL})"
     )
     parser.add_argument(
         "--num-speakers",
         type=int,
         default=None,
-        help="Nombre exact de locuteurs, si connu (sinon détecté automatiquement)",
+        help="Exact number of speakers, if known (otherwise detected automatically)",
     )
     parser.add_argument(
         "--diarization-model",
         default=DEFAULT_DIARIZATION_MODEL,
-        help=f"Modèle de diarisation pyannote (défaut : {DEFAULT_DIARIZATION_MODEL})",
+        help=f"pyannote diarization model (default: {DEFAULT_DIARIZATION_MODEL})",
     )
     args = parser.parse_args()
 
@@ -218,14 +218,14 @@ def main() -> None:
             diarization_model=args.diarization_model,
         )
     except (FileNotFoundError, ValueError) as error:
-        print(f"Erreur : {error}", file=sys.stderr)
+        print(f"Error: {error}", file=sys.stderr)
         sys.exit(1)
 
     for segment in segments:
         print(f"[{segment['speaker']}] {segment['text']}")
 
     output_path = save_diarized_transcript(segments, args.audio_path)
-    print(f"\nTranscription diarisée enregistrée : {output_path}", file=sys.stderr)
+    print(f"\nDiarized transcript saved: {output_path}", file=sys.stderr)
 
 
 if __name__ == "__main__":
