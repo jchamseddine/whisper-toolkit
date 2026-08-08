@@ -195,7 +195,7 @@ LOG="$HOME/Library/Logs/WhisperToolkit.log"
 mkdir -p "$(dirname "$LOG")"
 echo "=== $(date) ===" > "$LOG"
 
-__PYVENV_LAUNCHER__="$PWD/venv/bin/python" nohup "$LAUNCHER" launch_desktop.py >> "$LOG" 2>&1 &
+__PYVENV_LAUNCHER__="$PWD/venv/bin/python" nohup "$LAUNCHER" launch_desktop.py < /dev/null >> "$LOG" 2>&1 &
 PID=$!
 disown
 
@@ -215,6 +215,14 @@ startup failure perfectly mute: no terminal, no dialog. The applet therefore
 watches until Streamlit answers — the app is visible, it has no further reason
 to exist — or until the process dies, the only case where it has something to
 say.
+
+**`< /dev/null` is not decoration either.** Automator hands its shell script a
+pipe on standard input. Redirecting the background process's output leaves that
+pipe untouched: the launcher keeps its read end open for the whole session, and
+so does Streamlit, which inherits its streams. Checked with `lsof -p <pid> -a
+-d 0` — `PIPE` without the redirect, `/dev/null` with it, on both processes.
+An applet that has withdrawn should leave nothing of itself behind in the
+processes it started.
 
 **The pairing of "message on stderr + `exit 1`" is what triggers Automator's
 dialog box**, and that is the only one guaranteed to show. A `display alert` via
